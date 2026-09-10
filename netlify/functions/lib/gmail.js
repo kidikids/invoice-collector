@@ -43,6 +43,7 @@ function extractAttachmentsAndLinks(payload) {
   let m;
   while ((m = linkRegex.exec(htmlBody))) {
     const url = m[1];
+    if (!/^https?:\/\//i.test(url)) continue; // מתעלם מקישורי mailto: וכו', שאינם קישורי הורדה
     const text = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     const looksRelevant =
       /הורד|חשבונית|קבלה|invoice|receipt|download|לצפייה|טופס/i.test(text) ||

@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@netlify/functions": "^2.8.1",
-    "googleapis": "^140.0.1"
+    "googleapis": "^140.0.1",
+    "pdf-parse": "^1.1.1"
   }
 }

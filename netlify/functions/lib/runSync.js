@@ -14,8 +14,11 @@ const {
   getVendorPasswords,
   appendInvoiceRow,
   getLoggedMessageIds,
+  getVendorAmountHistory,
+  extractVendorKey,
 } = require('./sheets');
 const { isPdfEncrypted } = require('./pdfCheck');
+const { extractAmountFromPdf } = require('./amountExtract');
 
 const DEFAULT_QUERY = 'subject:חשבונית newer_than:60d';
 
@@ -44,9 +47,39 @@ function statusLabel(encrypted, knownPassword, viaLink) {
   return (knownPassword ? 'מוצפן - סיסמה ידועה' : 'מוצפן - נדרשת סיסמה (הוסיפו בלשונית "ספקים")') + suffix;
 }
 
+// משווה סכום חדש לסכום הידוע הקודם של אותו ספק, ומחזיר תווית טקסטואלית
+// לעמודת "שינוי" בגיליון, וכן אובייקט התראה אם מדובר בעלייה.
+function compareAmount({ amount, from, filename, driveLink, mode, amountHistory }) {
+  const vendorKey = extractVendorKey(from);
+  const prev = amountHistory[vendorKey];
+  let changeLabel = '';
+  let alert = null;
+
+  if (prev && prev.amount > 0 && amount !== null) {
+    const diff = amount - prev.amount;
+    const pct = (diff / prev.amount) * 100;
+    if (Math.abs(diff) >= 0.01) {
+      const direction = diff > 0 ? 'עלייה' : 'ירידה';
+      changeLabel = `${direction}: ${prev.amount.toFixed(2)} ₪ ← ${amount.toFixed(2)} ₪ (${diff > 0 ? '+' : ''}${pct.toFixed(1)}%)`;
+      if (diff > 0) {
+        alert = { from, filename, previousAmount: prev.amount, newAmount: amount, diff, pct, driveLink, mode };
+      }
+    } else {
+      changeLabel = 'ללא שינוי';
+    }
+  }
+
+  if (amount !== null) {
+    amountHistory[vendorKey] = { amount, date: new Date() };
+  }
+
+  return { changeLabel, alert };
+}
+
 // הלב של המערכת: מחפש הודעות חשבונית ב-Gmail, מוריד PDF (מצורף או מקישור),
-// מזהה קבצים מוצפנים (בלי לפצח סיסמאות), ומתעד/מעלה לדרייב + לגיליון.
-// dryRun=true מריץ את כל הלוגיקה אך לא כותב/מעלה כלום - לבדיקה בטוחה.
+// מזהה קבצים מוצפנים (בלי לפצח סיסמאות), מנסה לזהות את סכום החיוב ולהשוות
+// לחודש קודם אצל אותו ספק, ומתעד/מעלה לדרייב + לגיליון.
+// dryRun=true מריץ את כל הלוגיקה אך לא כותב/מעלה כלום - לבדיקה בטוחה, כולל תצוגה מקדימה של התראות.
 async function runSync({ dryRun = false } = {}) {
   const results = {
     dryRun,
@@ -55,7 +88,9 @@ async function runSync({ dryRun = false } = {}) {
     encrypted: 0,
     needsReview: 0,
     skippedAlready: 0,
+    priceIncreases: 0,
     items: [],
+    alerts: [],
   };
 
   const auth = getOAuthClient();
@@ -68,9 +103,12 @@ async function runSync({ dryRun = false } = {}) {
     throw new Error('חסר משתנה סביבה INVOICE_SHEET_ID (ה-ID של גיליון "מעקב חשבוניות"). ראו README.');
   }
 
-await ensureSheetTabs(sheets, spreadsheetId);
+  // תמיד מוודאים שהלשוניות/כותרות קיימות - גם בבדיקה יבשה, כדי שקריאות
+  // מהגיליון (סיסמאות, היסטוריית סכומים) לא ייכשלו על גיליון ריק.
+  await ensureSheetTabs(sheets, spreadsheetId);
   const vendorPasswords = await getVendorPasswords(sheets, spreadsheetId);
   const alreadyLogged = dryRun ? new Set() : await getLoggedMessageIds(sheets, spreadsheetId);
+  const amountHistory = await getVendorAmountHistory(sheets, spreadsheetId);
 
   const query = process.env.GMAIL_SEARCH_QUERY || DEFAULT_QUERY;
   const messages = await searchInvoiceMessages(gmail, { query, maxResults: 100 });
@@ -105,6 +143,16 @@ await ensureSheetTabs(sheets, spreadsheetId);
       let driveLink = '';
       const filename = `${date.toISOString().slice(0, 10)}_${att.filename}`;
 
+      const amount = encrypted ? null : await extractAmountFromPdf(buffer);
+      const { changeLabel, alert } = compareAmount({
+        amount,
+        from,
+        filename,
+        driveLink,
+        mode: 'attachment',
+        amountHistory,
+      });
+
       if (!dryRun) {
         const uploaded = await uploadInvoice(drive, {
           rootFolderId: process.env.DRIVE_ROOT_FOLDER_ID,
@@ -115,6 +163,7 @@ await ensureSheetTabs(sheets, spreadsheetId);
           mimeType: 'application/pdf',
         });
         driveLink = uploaded.webViewLink;
+        if (alert) alert.driveLink = driveLink;
         await appendInvoiceRow(sheets, spreadsheetId, [
           date.toISOString().slice(0, 10),
           from,
@@ -123,12 +172,27 @@ await ensureSheetTabs(sheets, spreadsheetId);
           knownPassword,
           driveLink,
           m.id,
+          amount !== null ? amount.toFixed(2) : '',
+          changeLabel,
         ]);
       }
 
       if (encrypted) results.encrypted++;
       else results.downloaded++;
-      results.items.push({ from, filename, encrypted, hasKnownPassword: !!knownPassword, driveLink, mode: 'attachment' });
+      if (alert) {
+        results.priceIncreases++;
+        results.alerts.push(alert);
+      }
+      results.items.push({
+        from,
+        filename,
+        encrypted,
+        hasKnownPassword: !!knownPassword,
+        driveLink,
+        mode: 'attachment',
+        amount,
+        changeLabel,
+      });
     }
 
     // מקרה 2: אין מצורף, אבל יש קישור בגוף ההודעה שנראה כמו קישור להורדת חשבונית
@@ -137,13 +201,24 @@ await ensureSheetTabs(sheets, spreadsheetId);
       try {
         const resp = await fetchUrl(link.url);
         const contentType = (resp.headers['content-type'] || '').toLowerCase();
-           const looksLikePdf = resp.body && resp.body.slice(0, 4).toString('latin1') === '%PDF';
+        const looksLikePdf = resp.body && resp.body.slice(0, 4).toString('latin1') === '%PDF';
 
-   if (contentType.includes('pdf') || looksLikePdf) {          handled = true;
+        if (contentType.includes('pdf') || looksLikePdf) {
+          handled = true;
           const buffer = resp.body;
           const encrypted = isPdfEncrypted(buffer);
           const filename = `${date.toISOString().slice(0, 10)}_invoice.pdf`;
           let driveLink = '';
+
+          const amount = encrypted ? null : await extractAmountFromPdf(buffer);
+          const { changeLabel, alert } = compareAmount({
+            amount,
+            from,
+            filename,
+            driveLink,
+            mode: 'link',
+            amountHistory,
+          });
 
           if (!dryRun) {
             const uploaded = await uploadInvoice(drive, {
@@ -155,6 +230,7 @@ await ensureSheetTabs(sheets, spreadsheetId);
               mimeType: 'application/pdf',
             });
             driveLink = uploaded.webViewLink;
+            if (alert) alert.driveLink = driveLink;
             await appendInvoiceRow(sheets, spreadsheetId, [
               date.toISOString().slice(0, 10),
               from,
@@ -163,12 +239,27 @@ await ensureSheetTabs(sheets, spreadsheetId);
               knownPassword,
               driveLink,
               m.id,
+              amount !== null ? amount.toFixed(2) : '',
+              changeLabel,
             ]);
           }
 
           if (encrypted) results.encrypted++;
           else results.downloaded++;
-          results.items.push({ from, filename, encrypted, hasKnownPassword: !!knownPassword, driveLink, mode: 'link' });
+          if (alert) {
+            results.priceIncreases++;
+            results.alerts.push(alert);
+          }
+          results.items.push({
+            from,
+            filename,
+            encrypted,
+            hasKnownPassword: !!knownPassword,
+            driveLink,
+            mode: 'link',
+            amount,
+            changeLabel,
+          });
         } else {
           // הקישור מוביל לדף אינטרנט ולא לקובץ ישירות - שלב 2 שדורש דפדפן אוטומטי, לא נתמך כרגע
           handled = true;
@@ -182,6 +273,8 @@ await ensureSheetTabs(sheets, spreadsheetId);
               knownPassword,
               link.url,
               m.id,
+              '',
+              '',
             ]);
           }
           results.items.push({ from, note: 'קישור דורש טיפול ידני (מוביל לדף, לא לקובץ)', link: link.url, mode: 'link-manual' });

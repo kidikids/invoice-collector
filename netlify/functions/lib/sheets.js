@@ -1,5 +1,5 @@
 // ניהול גיליון "מעקב חשבוניות" - שתי לשוניות:
-// "חשבוניות" - יומן כל חשבונית שהתגלתה (משמש גם למניעת כפילויות)
+// "חשבוניות" - יומן כל חשבונית שהתגלתה (משמש גם למניעת כפילויות, וגם להשוואת סכומים בין חודשים)
 // "ספקים"    - טבלה שאתם ממלאים: שולח/דומיין -> סיסמה ידועה לקבצים המוגנים שלו
 
 const INVOICES_TAB = 'חשבוניות';
@@ -21,10 +21,22 @@ async function ensureSheetTabs(sheets, spreadsheetId) {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${INVOICES_TAB}!A1:G1`,
+    range: `${INVOICES_TAB}!A1:I1`,
     valueInputOption: 'RAW',
     requestBody: {
-      values: [['תאריך', 'שולח', 'שם קובץ', 'סטטוס', 'סיסמה', 'קישור לדרייב', 'Message ID']],
+      values: [
+        [
+          'תאריך',
+          'שולח',
+          'שם קובץ',
+          'סטטוס',
+          'סיסמה',
+          'קישור לדרייב',
+          'Message ID',
+          'סכום',
+          'שינוי לעומת פעם קודמת',
+        ],
+      ],
     },
   });
 
@@ -68,6 +80,35 @@ async function getLoggedMessageIds(sheets, spreadsheetId) {
   return new Set((res.data.values || []).map((r) => r[0]).filter(Boolean));
 }
 
+// בונה מיפוי של "ספק" (כתובת המייל של השולח) -> הסכום והתאריך של החשבונית
+// האחרונה הידועה שלו, כדי לאפשר השוואה בין חודשים וזיהוי עליות מחיר.
+function extractVendorKey(from) {
+  const m = String(from || '').match(/<([^>]+)>/);
+  return (m ? m[1] : from || '').trim().toLowerCase();
+}
+
+async function getVendorAmountHistory(sheets, spreadsheetId) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${INVOICES_TAB}!A2:H200000`,
+  });
+  const map = {};
+  (res.data.values || []).forEach((row) => {
+    const dateStr = row[0];
+    const from = row[1];
+    const amountStr = row[7];
+    if (!from || !amountStr) return;
+    const amount = parseFloat(String(amountStr).replace(/,/g, ''));
+    if (Number.isNaN(amount)) return;
+    const key = extractVendorKey(from);
+    const date = new Date(dateStr);
+    if (!map[key] || date > map[key].date) {
+      map[key] = { amount, date };
+    }
+  });
+  return map;
+}
+
 module.exports = {
   INVOICES_TAB,
   VENDORS_TAB,
@@ -75,4 +116,6 @@ module.exports = {
   getVendorPasswords,
   appendInvoiceRow,
   getLoggedMessageIds,
+  getVendorAmountHistory,
+  extractVendorKey,
 };
