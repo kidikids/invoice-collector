@@ -111,7 +111,26 @@ async function runSync({ dryRun = false } = {}) {
   const amountHistory = await getVendorAmountHistory(sheets, spreadsheetId);
 
   const query = process.env.GMAIL_SEARCH_QUERY || DEFAULT_QUERY;
-  const messages = await searchInvoiceMessages(gmail, { query, maxResults: 100 });
+  const baseMessages = await searchInvoiceMessages(gmail, { query, maxResults: 100 });
+
+  // בנוסף לחיפוש הכללי לפי מילת מפתח בכותרת, מחפשים גם באופן יזום לפי כל
+  // שולח/דומיין שמולא בלשונית "ספקים" - כך ספק שמוכר (למשל בזק) יימצא בכל
+  // חודש גם אם כותרת המייל שלו לא מכילה את המילה "חשבונית".
+  const messages = [...baseMessages];
+  const seenIds = new Set(baseMessages.map((m) => m.id));
+  const vendorKeys = Object.keys(vendorPasswords).filter(Boolean);
+  for (const key of vendorKeys) {
+    const vendorMessages = await searchInvoiceMessages(gmail, {
+      query: `from:${key} newer_than:60d`,
+      maxResults: 20,
+    });
+    for (const vm of vendorMessages) {
+      if (!seenIds.has(vm.id)) {
+        seenIds.add(vm.id);
+        messages.push(vm);
+      }
+    }
+  }
   results.matched = messages.length;
 
   for (const m of messages) {
