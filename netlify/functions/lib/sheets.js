@@ -24,7 +24,7 @@ async function ensureSheetTabs(sheets, spreadsheetId) {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${INVOICES_TAB}!A1:I1`,
+    range: `${INVOICES_TAB}!A1:J1`,
     valueInputOption: 'RAW',
     requestBody: {
       values: [
@@ -38,6 +38,7 @@ async function ensureSheetTabs(sheets, spreadsheetId) {
           'Message ID',
           'סכום',
           'שינוי לעומת פעם קודמת',
+          'Drive File ID',
         ],
       ],
     },
@@ -125,6 +126,15 @@ async function getVendorAmountHistory(sheets, spreadsheetId) {
   return map;
 }
 
+// שולף את כל שורות יומן החשבוניות כמו שהן (למסך "הדפסה והורדה לרו"ח")
+async function getAllInvoiceRows(sheets, spreadsheetId) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${INVOICES_TAB}!A2:J200000`,
+  });
+  return res.data.values || [];
+}
+
 module.exports = {
   INVOICES_TAB,
   VENDORS_TAB,
@@ -134,4 +144,5 @@ module.exports = {
   getLoggedMessageIds,
   getVendorAmountHistory,
   extractVendorKey,
+  getAllInvoiceRows,
 };

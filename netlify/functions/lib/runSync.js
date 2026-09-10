@@ -41,6 +41,22 @@ function fetchUrl(url) {
   });
 }
 
+// כשמישהו משתף חשבונית מוואטסאפ (או ממקור אחר) לעצמו ב-Gmail, כתובת "From"
+// היא כתובת המשתמש עצמו ולא הספק האמיתי - זה יקלקל את קיבוץ הספקים והשוואת
+// הסכומים. במקרה כזה, שולפים את שם הספק מתוך שורת הנושא (למשל "חשבונית - בזק"
+// הופך ל"בזק") כדי שהמעקב וההתראות ימשיכו לעבוד נכון גם על חשבוניות כאלה.
+function deriveVendorNameFromSubject(subject) {
+  if (!subject) return '';
+  const cleaned = String(subject)
+    .replace(/חשבונית/gi, '')
+    .replace(/invoice/gi, '')
+    .replace(/receipt/gi, '')
+    .replace(/[-:|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned;
+}
+
 function statusLabel(encrypted, knownPassword, viaLink) {
   const suffix = viaLink ? ' (מקישור בהודעה)' : '';
   if (!encrypted) return 'הורד בהצלחה' + suffix;
@@ -110,6 +126,16 @@ async function runSync({ dryRun = false } = {}) {
   const alreadyLogged = dryRun ? new Set() : await getLoggedMessageIds(sheets, spreadsheetId);
   const amountHistory = await getVendorAmountHistory(sheets, spreadsheetId);
 
+  // כתובת המייל של החשבון המחובר עצמו - כדי לזהות הודעות ש"שותפו לעצמי"
+  // (למשל חשבונית שהועברה מוואטסאפ ל-Gmail), ולטפל בהן אחרת (ראו למעלה).
+  let selfEmail = '';
+  try {
+    const profile = await gmail.users.getProfile({ userId: 'me' });
+    selfEmail = (profile.data.emailAddress || '').trim().toLowerCase();
+  } catch (e) {
+    selfEmail = '';
+  }
+
   const query = process.env.GMAIL_SEARCH_QUERY || DEFAULT_QUERY;
   const baseMessages = await searchInvoiceMessages(gmail, { query, maxResults: 100 });
 
@@ -142,10 +168,19 @@ async function runSync({ dryRun = false } = {}) {
     const full = await getMessage(gmail, m.id);
     const headers = full.payload.headers || [];
     const from = findHeader(headers, 'From');
+    const subject = findHeader(headers, 'Subject');
     const dateHeader = findHeader(headers, 'Date');
     const date = dateHeader ? new Date(dateHeader) : new Date(Number(full.internalDate));
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
+
+    // הודעה ש"שותפה לעצמי" (וואטסאפ/אחר) - נציג את שם הספק מתוך הנושא במקום
+    // את הכתובת של המשתמש עצמו, כדי שקיבוץ הספקים והשוואת הסכומים יעבדו נכון.
+    const fromEmailMatch = (from.match(/<([^>]+)>/) || [])[1] || from;
+    const isSelfSent = !!selfEmail && fromEmailMatch.trim().toLowerCase() === selfEmail;
+    const effectiveFrom = isSelfSent
+      ? deriveVendorNameFromSubject(subject) || 'שיתוף עצמי (וואטסאפ/אחר)'
+      : from;
 
     const domainMatch = (from.match(/@([\w.-]+)/) || [])[1] || '';
     const knownPassword =
@@ -165,7 +200,7 @@ async function runSync({ dryRun = false } = {}) {
       const amount = encrypted ? null : await extractAmountFromPdf(buffer);
       const { changeLabel, alert } = compareAmount({
         amount,
-        from,
+        from: effectiveFrom,
         filename,
         driveLink,
         mode: 'attachment',
@@ -185,7 +220,7 @@ async function runSync({ dryRun = false } = {}) {
         if (alert) alert.driveLink = driveLink;
         await appendInvoiceRow(sheets, spreadsheetId, [
           date.toISOString().slice(0, 10),
-          from,
+          effectiveFrom,
           filename,
           statusLabel(encrypted, knownPassword, false),
           knownPassword,
@@ -193,6 +228,7 @@ async function runSync({ dryRun = false } = {}) {
           m.id,
           amount !== null ? amount.toFixed(2) : '',
           changeLabel,
+          uploaded.id || '',
         ]);
       }
 
@@ -203,7 +239,7 @@ async function runSync({ dryRun = false } = {}) {
         results.alerts.push(alert);
       }
       results.items.push({
-        from,
+        from: effectiveFrom,
         filename,
         encrypted,
         hasKnownPassword: !!knownPassword,
@@ -232,7 +268,7 @@ async function runSync({ dryRun = false } = {}) {
           const amount = encrypted ? null : await extractAmountFromPdf(buffer);
           const { changeLabel, alert } = compareAmount({
             amount,
-            from,
+            from: effectiveFrom,
             filename,
             driveLink,
             mode: 'link',
@@ -252,7 +288,7 @@ async function runSync({ dryRun = false } = {}) {
             if (alert) alert.driveLink = driveLink;
             await appendInvoiceRow(sheets, spreadsheetId, [
               date.toISOString().slice(0, 10),
-              from,
+              effectiveFrom,
               filename,
               statusLabel(encrypted, knownPassword, true),
               knownPassword,
@@ -260,6 +296,7 @@ async function runSync({ dryRun = false } = {}) {
               m.id,
               amount !== null ? amount.toFixed(2) : '',
               changeLabel,
+              uploaded.id || '',
             ]);
           }
 
@@ -270,7 +307,7 @@ async function runSync({ dryRun = false } = {}) {
             results.alerts.push(alert);
           }
           results.items.push({
-            from,
+            from: effectiveFrom,
             filename,
             encrypted,
             hasKnownPassword: !!knownPassword,
@@ -292,6 +329,7 @@ async function runSync({ dryRun = false } = {}) {
               knownPassword,
               link.url,
               m.id,
+              '',
               '',
               '',
             ]);

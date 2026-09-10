@@ -9,6 +9,8 @@
   "dependencies": {
     "@netlify/functions": "^2.8.1",
     "googleapis": "^140.0.1",
+    "jszip": "^3.10.2",
+    "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1"
   }
 }

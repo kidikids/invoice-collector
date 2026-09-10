@@ -1,3 +1,14 @@
+// --- ניווט בין העמודים בסיידבר ---
+document.querySelectorAll('.nav-item').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.page').forEach((p) => (p.hidden = true));
+    const target = document.getElementById('page-' + btn.dataset.page);
+    if (target) target.hidden = false;
+  });
+});
+
 const statusEl = document.getElementById('status');
 const summaryEl = document.getElementById('summary');
 const alertsWrap = document.getElementById('alertsWrap');
@@ -140,6 +151,138 @@ async function loadStats() {
 
 refreshStatsBtn.addEventListener('click', loadStats);
 loadStats();
+
+// --- הדפסה והורדה לרו"ח ---
+const invoiceListWrap = document.getElementById('invoiceListWrap');
+const monthFilter = document.getElementById('monthFilter');
+const selectAllBtn = document.getElementById('selectAllBtn');
+const clearSelectionBtn = document.getElementById('clearSelectionBtn');
+const downloadZipBtn = document.getElementById('downloadZipBtn');
+const mergePrintBtn = document.getElementById('mergePrintBtn');
+const exportStatus = document.getElementById('exportStatus');
+const refreshInvoiceListBtn = document.getElementById('refreshInvoiceListBtn');
+
+let allInvoices = [];
+
+function invoiceMonthKey(dateStr) {
+  return (dateStr || '').slice(0, 7);
+}
+
+function escapeAttr(s) {
+  return String(s || '').replace(/"/g, '&quot;');
+}
+
+function renderInvoiceList() {
+  const filterVal = monthFilter.value;
+  const filtered = filterVal ? allInvoices.filter((it) => invoiceMonthKey(it.date) === filterVal) : allInvoices;
+  if (!filtered.length) {
+    invoiceListWrap.innerHTML = '<p>אין חשבוניות להצגה בטווח הזה.</p>';
+    return;
+  }
+  const rows = filtered
+    .map(
+      (it) => `<tr>
+        <td><input type="checkbox" class="invoice-check" data-id="${it.driveFileId}" data-filename="${escapeAttr(it.filename)}"></td>
+        <td>${it.date}</td>
+        <td>${it.from}</td>
+        <td>${it.filename}</td>
+        <td>${it.amount ? it.amount + ' ₪' : ''}</td>
+      </tr>`
+    )
+    .join('');
+  invoiceListWrap.innerHTML = `<table>
+    <thead><tr><th></th><th>תאריך</th><th>שולח</th><th>קובץ</th><th>סכום</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function populateMonthFilter() {
+  const months = [...new Set(allInvoices.map((it) => invoiceMonthKey(it.date)))].filter(Boolean).sort().reverse();
+  monthFilter.innerHTML =
+    '<option value="">כל החודשים</option>' + months.map((m) => `<option value="${m}">${m}</option>`).join('');
+}
+
+async function loadInvoiceList() {
+  invoiceListWrap.innerHTML = '<p>טוען רשימה...</p>';
+  try {
+    const res = await fetch('/.netlify/functions/list-invoices');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'שגיאה');
+    allInvoices = data.items || [];
+    populateMonthFilter();
+    renderInvoiceList();
+  } catch (err) {
+    invoiceListWrap.innerHTML = `<p style="color:#b91c1c">שגיאה: ${err.message}</p>`;
+  }
+}
+
+function getSelectedFiles() {
+  return Array.from(document.querySelectorAll('.invoice-check:checked')).map((cb) => ({
+    id: cb.dataset.id,
+    filename: cb.dataset.filename,
+  }));
+}
+
+function base64ToBlobUrl(base64, mimeType) {
+  const byteChars = atob(base64);
+  const byteNumbers = new Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+  const blob = new Blob([new Uint8Array(byteNumbers)], { type: mimeType });
+  return URL.createObjectURL(blob);
+}
+
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function exportSelected(mode) {
+  const files = getSelectedFiles();
+  if (!files.length) {
+    exportStatus.textContent = 'לא נבחרו חשבוניות.';
+    return;
+  }
+  exportStatus.textContent = mode === 'zip' ? 'מכין קובץ ZIP...' : 'ממזג PDF להדפסה...';
+  try {
+    const res = await fetch('/.netlify/functions/export-invoices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files, mode }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'שגיאה');
+    const url = base64ToBlobUrl(data.base64, data.mimeType);
+    if (mode === 'zip') {
+      triggerDownload(url, data.filename);
+      exportStatus.textContent = `הורד: ${data.filename} (${files.length} חשבוניות)`;
+    } else {
+      window.open(url, '_blank');
+      const skippedMsg =
+        data.skipped && data.skipped.length
+          ? ` דולגו ${data.skipped.length} קבצים (מוצפנים/פגומים): ${data.skipped.join(', ')}.`
+          : '';
+      exportStatus.innerHTML = `ה-PDF הממוזג נפתח בכרטיסייה חדשה - אפשר להדפיס משם.${skippedMsg} <a href="${url}" download="${data.filename}">הורדת הקובץ</a>`;
+    }
+  } catch (err) {
+    exportStatus.textContent = 'שגיאה: ' + err.message;
+  }
+}
+
+monthFilter.addEventListener('change', renderInvoiceList);
+selectAllBtn.addEventListener('click', () => {
+  invoiceListWrap.querySelectorAll('.invoice-check').forEach((cb) => (cb.checked = true));
+});
+clearSelectionBtn.addEventListener('click', () => {
+  invoiceListWrap.querySelectorAll('.invoice-check').forEach((cb) => (cb.checked = false));
+});
+downloadZipBtn.addEventListener('click', () => exportSelected('zip'));
+mergePrintBtn.addEventListener('click', () => exportSelected('merge'));
+refreshInvoiceListBtn.addEventListener('click', loadInvoiceList);
+loadInvoiceList();
 
 function setBusy(busy, msg) {
   dryRunBtn.disabled = busy;
