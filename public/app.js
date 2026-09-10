@@ -4,6 +4,142 @@ const alertsWrap = document.getElementById('alertsWrap');
 const tableWrap = document.getElementById('resultsTableWrap');
 const dryRunBtn = document.getElementById('dryRunBtn');
 const runBtn = document.getElementById('runBtn');
+const statsStatusEl = document.getElementById('statsStatus');
+const statsBodyEl = document.getElementById('statsBody');
+const kpiGridEl = document.getElementById('kpiGrid');
+const recentIncreasesWrap = document.getElementById('recentIncreasesWrap');
+const refreshStatsBtn = document.getElementById('refreshStatsBtn');
+
+let monthlyChartInstance = null;
+let vendorChartInstance = null;
+
+function fmtIls(n) {
+  return `${Number(n).toLocaleString('he-IL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ₪`;
+}
+
+function kpiCard(label, value, sub, warn) {
+  return `<div class="kpi-card${warn ? ' kpi-warn' : ''}">
+    <div class="kpi-value">${value}</div>
+    <div class="kpi-label">${label}</div>
+    ${sub ? `<div class="kpi-sub">${sub}</div>` : ''}
+  </div>`;
+}
+
+function renderKpis(s) {
+  const pct = s.monthOverMonthPct;
+  const pctText =
+    pct == null ? 'אין עדיין נתון לחודש קודם' : `${pct > 0 ? '+' : ''}${pct.toFixed(1)}% לעומת החודש הקודם`;
+  kpiGridEl.innerHTML = [
+    kpiCard('הוצאה החודש', fmtIls(s.thisMonthTotal), pctText, pct != null && pct > 0),
+    kpiCard('סה"כ מתועד', fmtIls(s.totalAllTime), `${s.invoiceCount} חשבוניות`),
+    kpiCard('ספקים במעקב', s.vendorCount, ''),
+    kpiCard('עליות מחיר שזוהו', s.priceIncreaseCount, '', s.priceIncreaseCount > 0),
+    kpiCard('ממתין לסיסמה', s.encryptedPendingCount, '', s.encryptedPendingCount > 0),
+  ].join('');
+}
+
+function renderMonthlyChart(months) {
+  const ctx = document.getElementById('monthlyChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  if (monthlyChartInstance) monthlyChartInstance.destroy();
+  monthlyChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: months.map((m) => m.label),
+      datasets: [
+        {
+          label: 'הוצאה חודשית',
+          data: months.map((m) => m.total),
+          borderColor: '#4f46e5',
+          backgroundColor: 'rgba(79,70,229,0.12)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4,
+          pointBackgroundColor: '#4f46e5',
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { callback: (v) => fmtIls(v) } } },
+    },
+  });
+}
+
+function renderVendorChart(topVendors) {
+  const ctx = document.getElementById('vendorChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  if (vendorChartInstance) vendorChartInstance.destroy();
+  vendorChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: topVendors.map((v) => v.name),
+      datasets: [
+        {
+          label: 'סה"כ',
+          data: topVendors.map((v) => v.total),
+          backgroundColor: '#0ea5e9',
+          borderRadius: 6,
+        },
+      ],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, ticks: { callback: (v) => fmtIls(v) } } },
+    },
+  });
+}
+
+function renderRecentIncreases(list) {
+  if (!list || !list.length) {
+    recentIncreasesWrap.innerHTML = '';
+    return;
+  }
+  const rows = list
+    .map(
+      (r) => `<tr>
+        <td>${r.date}</td>
+        <td>${r.vendor}</td>
+        <td>${r.changeLabel}</td>
+        <td>${r.driveLink ? `<a href="${r.driveLink}" target="_blank">פתיחה</a>` : ''}</td>
+      </tr>`
+    )
+    .join('');
+  recentIncreasesWrap.innerHTML = `<h4 class="sub-title">היסטוריית עליות מחיר</h4>
+    <table>
+      <thead><tr><th>תאריך</th><th>ספק</th><th>שינוי</th><th>קישור</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function loadStats() {
+  statsStatusEl.textContent = 'טוען נתונים...';
+  statsStatusEl.hidden = false;
+  statsBodyEl.hidden = true;
+  try {
+    const res = await fetch('/.netlify/functions/stats');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'שגיאה בטעינת סטטיסטיקות');
+    if (!data.invoiceCount) {
+      statsStatusEl.textContent = 'עדיין אין נתונים - הריצו סנכרון אמיתי כדי להתחיל לראות סטטיסטיקות.';
+      return;
+    }
+    renderKpis(data);
+    renderMonthlyChart(data.months);
+    renderVendorChart(data.topVendors);
+    renderRecentIncreases(data.recentIncreases);
+    statsStatusEl.hidden = true;
+    statsBodyEl.hidden = false;
+  } catch (err) {
+    statsStatusEl.textContent = 'שגיאה בטעינת סטטיסטיקות: ' + err.message;
+  }
+}
+
+refreshStatsBtn.addEventListener('click', loadStats);
+loadStats();
 
 function setBusy(busy, msg) {
   dryRunBtn.disabled = busy;
