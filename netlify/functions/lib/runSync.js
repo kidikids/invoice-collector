@@ -137,9 +137,9 @@ await ensureSheetTabs(sheets, spreadsheetId);
       try {
         const resp = await fetchUrl(link.url);
         const contentType = (resp.headers['content-type'] || '').toLowerCase();
+           const looksLikePdf = resp.body && resp.body.slice(0, 4).toString('latin1') === '%PDF';
 
-        if (contentType.includes('pdf')) {
-          handled = true;
+   if (contentType.includes('pdf') || looksLikePdf) {          handled = true;
           const buffer = resp.body;
           const encrypted = isPdfEncrypted(buffer);
           const filename = `${date.toISOString().slice(0, 10)}_invoice.pdf`;
