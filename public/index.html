@@ -1,0 +1,42 @@
+<!doctype html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>אוסף חשבוניות - קידי קידס</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>אוסף חשבוניות</h1>
+  <p class="subtitle">אוסף חשבוניות אוטומטית מהמייל, מארגן בדרייב לפי חודש ומתעד בגיליון מעקב.</p>
+
+  <div class="card">
+    <h3>שלב 1: חיבור לחשבון גוגל</h3>
+    <p>יש לבצע פעם אחת בלבד, לאחר הגדרת ה-Environment Variables ב-Netlify (ראו README).</p>
+    <a class="button" href="/.netlify/functions/oauth-start">התחברות לגוגל</a>
+  </div>
+
+  <div class="card">
+    <h3>שלב 2: הרצה</h3>
+    <p>מומלץ להתחיל תמיד ב"בדיקה יבשה" - היא רק מציגה דוח, ולא שומרת/מורידה שום דבר בפועל.</p>
+    <div class="buttons">
+      <button id="dryRunBtn">בדיקה יבשה (Dry Run)</button>
+      <button id="runBtn" class="primary">הרצה אמיתית - הורדה וארגון החשבוניות</button>
+    </div>
+    <div id="status"></div>
+    <div id="summary" class="summary"></div>
+    <div id="resultsTableWrap"></div>
+  </div>
+
+  <div class="card">
+    <h3>קישורים שימושיים</h3>
+    <p>עדכנו כאן ידנית את הקישורים שלכם לאחר ההגדרה (ערכו את הקובץ <code>public/index.html</code>):</p>
+    <ul>
+      <li>גיליון "מעקב חשבוניות" - <em>הוסיפו כאן קישור</em></li>
+      <li>תיקיית "חשבוניות" בדרייב - <em>הוסיפו כאן קישור</em></li>
+    </ul>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

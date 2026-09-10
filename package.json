@@ -1,0 +1,13 @@
+{
+  "name": "invoice-collector",
+  "version": "1.0.0",
+  "description": "אוסף חשבוניות מ-Gmail באופן אוטומטי, מארגן לפי חודש בגוגל דרייב ומתעד בגיליון גוגל.",
+  "private": true,
+  "scripts": {
+    "dev": "netlify dev"
+  },
+  "dependencies": {
+    "@netlify/functions": "^2.8.1",
+    "googleapis": "^140.0.1"
+  }
+}
