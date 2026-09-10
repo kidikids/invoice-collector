@@ -68,7 +68,7 @@ async function runSync({ dryRun = false } = {}) {
     throw new Error('חסר משתנה סביבה INVOICE_SHEET_ID (ה-ID של גיליון "מעקב חשבוניות"). ראו README.');
   }
 
-  if (!dryRun) await ensureSheetTabs(sheets, spreadsheetId);
+await ensureSheetTabs(sheets, spreadsheetId);
   const vendorPasswords = await getVendorPasswords(sheets, spreadsheetId);
   const alreadyLogged = dryRun ? new Set() : await getLoggedMessageIds(sheets, spreadsheetId);
 
