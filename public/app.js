@@ -492,6 +492,33 @@ function renderSearchRules() {
   rulesTableWrap.querySelectorAll('.rule-delete-btn').forEach((btn) => {
     btn.addEventListener('click', () => deleteRule(Number(btn.dataset.idx)));
   });
+  renderActiveVendorsList();
+}
+
+// הפאנל הקבוע בעמוד "ספקים קבועים" (מימין) - תצוגה מצומצמת ונוחה של כללי
+// "כלול" בלבד (בלי החרגות ובלי מילות מפתח בנושא), עם אפשרות הוספה/הסרה
+// מהירה. משתמש באותו מקור נתונים (searchRules) כמו הטבלה המלאה בעמוד
+// ההגדרות, ומתעדכן אוטומטית בכל renderSearchRules().
+function renderActiveVendorsList() {
+  const activeVendorsList = document.getElementById('activeVendorsList');
+  if (!activeVendorsList) return;
+  const active = searchRules.map((r, i) => ({ ...r, i })).filter((r) => r.type === 'כלול');
+  if (!active.length) {
+    activeVendorsList.innerHTML = '<p class="vendor-sidebar-empty">עדיין אין ספקים ברשימה הקבועה.</p>';
+    return;
+  }
+  activeVendorsList.innerHTML = active
+    .map((r) => {
+      const label = [r.sender, r.subjectKeyword].filter(Boolean).join(' + ') || '(ללא פרטים)';
+      return `<div class="active-vendor-row">
+        <div class="active-vendor-label">${label}</div>
+        <button class="link-btn active-vendor-remove" data-idx="${r.i}" title="הסרה מהרשימה הקבועה">✕</button>
+      </div>`;
+    })
+    .join('');
+  activeVendorsList.querySelectorAll('.active-vendor-remove').forEach((btn) => {
+    btn.addEventListener('click', () => deleteRule(Number(btn.dataset.idx)));
+  });
 }
 
 async function loadSearchRules() {
@@ -546,6 +573,19 @@ addRuleBtn.addEventListener('click', () => {
 });
 
 loadSearchRules();
+
+// הוספה ידנית מהירה מהפאנל הקבוע (עמוד "ספקים קבועים") - שקולה להוספת כלל
+// "כלול" עם שולח בלבד דרך הטופס המלא בעמוד ההגדרות.
+const quickAddSenderInput = document.getElementById('quickAddSender');
+const quickAddSenderBtn = document.getElementById('quickAddSenderBtn');
+quickAddSenderBtn.addEventListener('click', () => {
+  const sender = quickAddSenderInput.value.trim();
+  if (!sender) return;
+  searchRules.push({ type: 'כלול', sender, subjectKeyword: '', note: 'נוסף ידנית מרשימת הספקים הקבועים' });
+  quickAddSenderInput.value = '';
+  renderSearchRules();
+  saveSearchRules();
+});
 
 // --- הספקים הקבועים שלי (הצעות אוטומטיות מתוך היסטוריית החשבוניות) ---
 const detectedVendorsWrap = document.getElementById('detectedVendorsWrap');

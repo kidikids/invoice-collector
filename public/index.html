@@ -23,6 +23,9 @@
         <button class="nav-item" data-page="invoices">
           <span class="nav-icon">▤</span> חשבוניות והדפסה
         </button>
+        <button class="nav-item" data-page="vendors">
+          <span class="nav-icon">☆</span> ספקים קבועים
+        </button>
         <button class="nav-item" data-page="settings">
           <span class="nav-icon">⚙</span> הגדרות ועזרה
         </button>
@@ -124,6 +127,108 @@
         </section>
       </div>
 
+      <div class="page" id="page-vendors" hidden>
+        <div class="page-title-row">
+          <h2>ספקים קבועים</h2>
+        </div>
+
+        <div class="vendor-page-grid">
+          <aside class="vendor-sidebar">
+            <div class="section-head">
+              <h3>ספקים ברשימה הקבועה</h3>
+            </div>
+            <p class="vendor-sidebar-hint">אלה הספקים שהמערכת מחפשת ביוזמתה בכל הרצה, גם אם כותרת המייל לא מכילה את המילה "חשבונית". השתמשו בכלים לצד זה כדי למצוא ולהוסיף, או הוסיפו/הסירו ידנית כאן.</p>
+            <div id="activeVendorsList"><p class="vendor-sidebar-empty">טוען...</p></div>
+            <div class="rule-form" style="flex-direction:column; align-items:stretch; margin-top:14px;">
+              <input type="text" id="quickAddSender" placeholder="הוספה ידנית - כתובת מייל / דומיין">
+              <button id="quickAddSenderBtn">הוספה לרשימה</button>
+            </div>
+          </aside>
+
+          <div class="vendor-main">
+            <section class="card">
+              <div class="section-head">
+                <h3>הספקים הקבועים שלי</h3>
+                <button id="refreshDetectedVendorsBtn" class="link-btn">רענון</button>
+              </div>
+              <p>אלה השולחים שכבר זוהו בהיסטוריית החשבוניות שלכם. סמנו ספקים (אפשר כמה יחד) ולחצו "הוספה לרשימה הקבועה" כדי שהמערכת תחפש את המיילים שלהם ביוזמתה בכל חודש, גם אם כותרת המייל לא מכילה את המילה "חשבונית". אפשר גם להריץ מיד סריקה היסטורית לספקים שנוספו, כדי למשוך גם את החשבוניות הישנות שלהם ולא רק את החדשות.</p>
+              <div id="detectedVendorsWrap"><p>טוען...</p></div>
+              <div class="buttons" style="margin-top:12px; align-items:center;">
+                <button id="addSelectedVendorsBtn">הוספת הנבחרים לרשימה הקבועה</button>
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem;">
+                  וגם סריקה היסטורית לטווח:
+                  <select id="vendorScanRangeSelect">
+                    <option value="90">3 חודשים</option>
+                    <option value="180" selected>6 חודשים</option>
+                    <option value="365">שנה</option>
+                    <option value="730">שנתיים</option>
+                  </select>
+                </label>
+                <button id="addAndScanVendorsBtn" class="primary">הוספה + סריקה היסטורית</button>
+              </div>
+              <div id="vendorScanStatus" class="export-status"></div>
+              <div id="vendorScanSummary" class="summary"></div>
+              <div id="vendorScanAlertsWrap"></div>
+              <div id="vendorScanTableWrap"></div>
+            </section>
+
+            <section class="card">
+              <h3>גילוי ספקים חדשים / חיפוש לפי שם</h3>
+              <p>הרשימה למעלה מבוססת רק על מה שכבר תועד בגיליון. הכרטיס הזה עושה משהו אחר: סורק ישירות ב-Gmail בטווח שתבחרו. אפשר להשאיר את שדה החיפוש ריק כדי לסרוק את כל ההודעות עם קובץ PDF מצורף (גם בלי המילה "חשבונית" בכלל) - או להקליד שם ספק/מילת מפתח/כתובת מייל ספציפיים כדי לחפש בדיוק אותם, בדיוק כמו חיפוש רגיל ב-Gmail. סריקה בטווח רחב עשויה לקחת קצת יותר זמן, ואם מקבלים הודעת שגיאה על חריגת מכסה - פשוט לנסות שוב אחרי כמה דקות, רצוי עם טווח קצר יותר.</p>
+              <div class="buttons" style="align-items:center; flex-wrap:wrap;">
+                <input type="text" id="discoverSearchTerm" placeholder="שם ספק / מילת מפתח / כתובת מייל (אופציונלי - ריק = כל ה-PDF-ים)" style="flex:1 1 260px; padding:8px 10px; border-radius:6px; border:1px solid var(--border); font-size:0.88rem;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem;">
+                  טווח סריקה:
+                  <select id="discoverRangeSelect">
+                    <option value="90">3 חודשים</option>
+                    <option value="180" selected>6 חודשים</option>
+                    <option value="365">שנה</option>
+                    <option value="730">שנתיים</option>
+                  </select>
+                </label>
+                <button id="discoverVendorsBtn" class="primary">חיפוש</button>
+              </div>
+              <div id="discoverStatus" class="export-status"></div>
+              <div id="discoverVendorsWrap"></div>
+              <div class="buttons" style="margin-top:12px; align-items:center;">
+                <button id="addSelectedDiscoveredBtn">הוספת הנבחרים לרשימה הקבועה</button>
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem;">
+                  וגם סריקה היסטורית לטווח:
+                  <select id="discoveredScanRangeSelect">
+                    <option value="90">3 חודשים</option>
+                    <option value="180" selected>6 חודשים</option>
+                    <option value="365">שנה</option>
+                    <option value="730">שנתיים</option>
+                  </select>
+                </label>
+                <button id="addAndScanDiscoveredBtn" class="primary">הוספה + סריקה היסטורית</button>
+              </div>
+              <div id="discoveredScanStatus" class="export-status"></div>
+              <div id="discoveredScanSummary" class="summary"></div>
+              <div id="discoveredScanAlertsWrap"></div>
+              <div id="discoveredScanTableWrap"></div>
+            </section>
+
+            <section class="card">
+              <h3>כללי חיפוש - עריכה מתקדמת</h3>
+              <p>אותה רשימה בדיוק כמו בפאנל מימין, רק עם אפשרויות נוספות: גם הגדרת "החרגה" (שולחים/נושאים שלעולם לא רוצים למשוך מהם), וגם שילוב שולח+מילת מפתח יחד באותו כלל (שניהם צריכים להתאים). להוספה פשוטה של ספק - עדיף להשתמש בפאנל מימין או בכלים למעלה.</p>
+              <div id="rulesTableWrap"></div>
+              <div class="rule-form">
+                <select id="ruleType">
+                  <option value="כלול">כלול (למשוך תמיד)</option>
+                  <option value="החרג">החרג (אף פעם לא למשוך)</option>
+                </select>
+                <input type="text" id="ruleSender" placeholder="שולח / דומיין (אופציונלי)">
+                <input type="text" id="ruleSubject" placeholder="מילת מפתח בנושא (אופציונלי)">
+                <input type="text" id="ruleNote" placeholder="הערה (אופציונלי)">
+                <button id="addRuleBtn">הוספת כלל</button>
+              </div>
+              <div id="rulesStatus" class="export-status"></div>
+            </section>
+          </div>
+        </div>
+      </div>
+
       <div class="page" id="page-settings" hidden>
         <div class="page-title-row">
           <h2>הגדרות ועזרה</h2>
@@ -138,87 +243,7 @@
         <section class="card">
           <h3>איך עובדת ההתראה על שינוי סכום?</h3>
           <p>בכל הרצה, המערכת מנסה לזהות אוטומטית את סכום החיוב הכולל מתוך כל חשבונית (PDF לא מוצפן), ומשווה אותו לסכום האחרון הידוע של אותו ספק. אם הסכום עלה - הוא יופיע בבלוק "התראות" בעמוד "חשבוניות והדפסה", וגם בעמודת "שינוי לעומת פעם קודמת" בגיליון. זיהוי הסכום מבוסס על מילות מפתח נפוצות בחשבוניות ("לתשלום", "סה\"כ", Total וכו') - בחשבוניות בעיצוב חריג ייתכן שהזיהוי לא יצליח; במקרה כזה החשבונית עדיין תיארגן ותתועד כרגיל, פשוט בלי השוואת סכום.</p>
-          <p>לשונית "ספקים" בגיליון היא גם רשימת חיפוש יזום: כל שורה שם (עם כתובת מייל או דומיין) נבדקת בנפרד בכל הרצה, כדי לתפוס ספקים קבועים גם אם כותרת המייל שלהם לא מכילה את מילת החיפוש הרגילה.</p>
-        </section>
-
-        <section class="card">
-          <div class="section-head">
-            <h3>הספקים הקבועים שלי</h3>
-            <button id="refreshDetectedVendorsBtn" class="link-btn">רענון</button>
-          </div>
-          <p>אלה השולחים שכבר זוהו בהיסטוריית החשבוניות שלכם. סמנו ספקים (אפשר כמה יחד) ולחצו "הוספה לרשימה הקבועה" כדי שהמערכת תחפש את המיילים שלהם ביוזמתה בכל חודש, גם אם כותרת המייל לא מכילה את המילה "חשבונית" - בדיוק כמו מילוי ידני בקטע "כללי משיכה מותאמים אישית" למטה, רק בלי להקליד כלום. אפשר גם להריץ מיד סריקה היסטורית לספקים שנוספו, כדי למשוך גם את החשבוניות הישנות שלהם ולא רק את החדשות.</p>
-          <div id="detectedVendorsWrap"><p>טוען...</p></div>
-          <div class="buttons" style="margin-top:12px; align-items:center;">
-            <button id="addSelectedVendorsBtn">הוספת הנבחרים לרשימה הקבועה</button>
-            <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem;">
-              וגם סריקה היסטורית לטווח:
-              <select id="vendorScanRangeSelect">
-                <option value="90">3 חודשים</option>
-                <option value="180" selected>6 חודשים</option>
-                <option value="365">שנה</option>
-                <option value="730">שנתיים</option>
-              </select>
-            </label>
-            <button id="addAndScanVendorsBtn" class="primary">הוספה + סריקה היסטורית</button>
-          </div>
-          <div id="vendorScanStatus" class="export-status"></div>
-          <div id="vendorScanSummary" class="summary"></div>
-          <div id="vendorScanAlertsWrap"></div>
-          <div id="vendorScanTableWrap"></div>
-        </section>
-
-        <section class="card">
-          <h3>גילוי ספקים חדשים / חיפוש לפי שם</h3>
-          <p>הרשימה למעלה מבוססת רק על מה שכבר תועד בגיליון. הכרטיס הזה עושה משהו אחר: סורק ישירות ב-Gmail בטווח שתבחרו. אפשר להשאיר את שדה החיפוש ריק כדי לסרוק את כל ההודעות עם קובץ PDF מצורף (גם בלי המילה "חשבונית" בכלל) - או להקליד שם ספק/מילת מפתח/כתובת מייל ספציפיים כדי לחפש בדיוק אותם, בדיוק כמו חיפוש רגיל ב-Gmail. סריקה בטווח רחב עשויה לקחת קצת יותר זמן.</p>
-          <div class="buttons" style="align-items:center; flex-wrap:wrap;">
-            <input type="text" id="discoverSearchTerm" placeholder="שם ספק / מילת מפתח / כתובת מייל (אופציונלי - ריק = כל ה-PDF-ים)" style="flex:1 1 260px; padding:8px 10px; border-radius:6px; border:1px solid var(--border); font-size:0.88rem;">
-            <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem;">
-              טווח סריקה:
-              <select id="discoverRangeSelect">
-                <option value="90">3 חודשים</option>
-                <option value="180" selected>6 חודשים</option>
-                <option value="365">שנה</option>
-                <option value="730">שנתיים</option>
-              </select>
-            </label>
-            <button id="discoverVendorsBtn" class="primary">חיפוש</button>
-          </div>
-          <div id="discoverStatus" class="export-status"></div>
-          <div id="discoverVendorsWrap"></div>
-          <div class="buttons" style="margin-top:12px; align-items:center;">
-            <button id="addSelectedDiscoveredBtn">הוספת הנבחרים לרשימה הקבועה</button>
-            <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem;">
-              וגם סריקה היסטורית לטווח:
-              <select id="discoveredScanRangeSelect">
-                <option value="90">3 חודשים</option>
-                <option value="180" selected>6 חודשים</option>
-                <option value="365">שנה</option>
-                <option value="730">שנתיים</option>
-              </select>
-            </label>
-            <button id="addAndScanDiscoveredBtn" class="primary">הוספה + סריקה היסטורית</button>
-          </div>
-          <div id="discoveredScanStatus" class="export-status"></div>
-          <div id="discoveredScanSummary" class="summary"></div>
-          <div id="discoveredScanAlertsWrap"></div>
-          <div id="discoveredScanTableWrap"></div>
-        </section>
-
-        <section class="card">
-          <h3>כללי משיכה מותאמים אישית</h3>
-          <p>הגדירו כאן כתובות מייל/דומיינים ומילות מפתח בנושא שמהם <strong>כן</strong> תמיד למשוך חשבוניות (גם אם כותרת המייל לא תואמת את החיפוש הרגיל), וכן כאלה שמהם <strong>אין</strong> צורך למשוך בכלל (למשל שולח שמציף בהודעות לא רלוונטיות). אפשר למלא רק שולח, רק מילת מפתח, או שניהם יחד (במקרה כזה שניהם צריכים להתאים).</p>
-          <div id="rulesTableWrap"></div>
-          <div class="rule-form">
-            <select id="ruleType">
-              <option value="כלול">כלול (למשוך תמיד)</option>
-              <option value="החרג">החרג (אף פעם לא למשוך)</option>
-            </select>
-            <input type="text" id="ruleSender" placeholder="שולח / דומיין (אופציונלי)">
-            <input type="text" id="ruleSubject" placeholder="מילת מפתח בנושא (אופציונלי)">
-            <input type="text" id="ruleNote" placeholder="הערה (אופציונלי)">
-            <button id="addRuleBtn">הוספת כלל</button>
-          </div>
-          <div id="rulesStatus" class="export-status"></div>
+          <p>לשונית "ספקים" בגיליון היא גם רשימת חיפוש יזום: כל שורה שם (עם כתובת מייל או דומיין) נבדקת בנפרד בכל הרצה, כדי לתפוס ספקים קבועים גם אם כותרת המייל שלהם לא מכילה את מילת החיפוש הרגילה. ניהול נוח יותר של רשימת הספקים הקבועים נמצא כעת בעמוד "ספקים קבועים".</p>
         </section>
 
         <section class="card">

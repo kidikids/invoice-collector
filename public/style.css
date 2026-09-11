@@ -202,6 +202,36 @@ tbody tr:hover { background: #fafbff; }
 #invoiceListWrap thead th { position: sticky; top: 0; }
 .export-status { margin-top: 10px; font-size: 0.9rem; color: var(--muted); }
 
+/* --- ספקים קבועים (עמוד ייעודי) --- */
+.vendor-page-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 820px) {
+  .vendor-page-grid { grid-template-columns: 1fr; }
+}
+.vendor-sidebar {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  position: sticky;
+  top: 20px;
+}
+.vendor-sidebar .section-head { margin-bottom: 4px; }
+.vendor-sidebar-hint { font-size: 0.8rem; color: var(--muted); margin: 4px 0 12px; }
+.vendor-sidebar-empty { font-size: 0.85rem; color: var(--muted); }
+.active-vendor-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 6px; font-size: 0.83rem; background: #f8f9fc;
+}
+.active-vendor-label { overflow-wrap: anywhere; }
+.active-vendor-remove { color: var(--danger-ink); padding: 0 4px; font-size: 0.9rem; }
+.vendor-main { min-width: 0; }
+
 /* --- כללי משיכה מותאמים אישית --- */
 .rule-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
 .rule-form select, .rule-form input {
