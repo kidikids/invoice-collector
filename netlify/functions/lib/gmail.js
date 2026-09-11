@@ -30,8 +30,13 @@ function findHeader(headers, name) {
   return h ? h.value : '';
 }
 
+// תמונות שנחשבות "חשבונית מצולמת" - למשל צילום קבלה/חשבונית מהטלפון שנשלח
+// כמצורף (לא PDF). לא ניתן לחלץ מהן סכום אוטומטית (זה לא טקסט), אבל עדיין
+// רוצים להוריד אותן לדרייב ולתעד אותן בגיליון.
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|heic|heif)$/i;
+
 // עובר על מבנה ההודעה (יכול להיות מקונן עם parts רבים) ומחלץ:
-// - קבצי PDF מצורפים
+// - קבצי PDF מצורפים, וכן תמונות מצורפות (חשבוניות מצולמות)
 // - קישורים בגוף ה-HTML שנראים כמו קישורי הורדת חשבונית
 function extractAttachmentsAndLinks(payload) {
   const attachments = [];
@@ -39,11 +44,20 @@ function extractAttachmentsAndLinks(payload) {
 
   function walk(part) {
     if (!part) return;
-    if (part.filename && part.filename.toLowerCase().endsWith('.pdf') && part.body) {
+    const filename = part.filename || '';
+    if (filename.toLowerCase().endsWith('.pdf') && part.body) {
       attachments.push({
         filename: part.filename,
         attachmentId: part.body.attachmentId,
         mimeType: part.mimeType,
+        kind: 'pdf',
+      });
+    } else if (IMAGE_EXTENSIONS.test(filename) && part.body) {
+      attachments.push({
+        filename: part.filename,
+        attachmentId: part.body.attachmentId,
+        mimeType: part.mimeType,
+        kind: 'image',
       });
     }
     if (part.mimeType === 'text/html' && part.body && part.body.data) {

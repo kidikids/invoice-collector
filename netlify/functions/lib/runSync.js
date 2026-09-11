@@ -68,14 +68,27 @@ function deriveVendorNameFromSubject(subject) {
   return cleaned;
 }
 
+// שדה "מילת מפתח בנושא" בכלל אחד יכול להכיל כמה מילות מפתח מופרדות בפסיק
+// (לדוגמה: "חשבונית דיגיטלית, הלוואה") - כדי לאפשר לאותו שולח למשוך כמה
+// סוגי הודעות שונות בלי צורך ביצירת כמה כללים נפרדים. ההתאמה היא "או" בין
+// המילים (מספיק שאחת מהן מופיעה בנושא ההודעה).
+function splitKeywords(str) {
+  return String(str || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 // בודק אם הודעה תואמת אחד מכללי "החרג" שהוגדרו במסך ההגדרות - אם הוגדרו גם
-// שולח וגם מילת מפתח באותו כלל, שניהם צריכים להתאים; אם הוגדר רק אחד מהם, מספיק שהוא יתאים.
+// שולח וגם מילת/מילות מפתח באותו כלל, שניהם צריכים להתאים (השולח, וגם לפחות
+// אחת ממילות המפתח); אם הוגדר רק אחד מהם, מספיק שהוא יתאים.
 function matchesExcludeRule(from, subject, excludeRules) {
   const fromLower = String(from || '').toLowerCase();
   const subjectLower = String(subject || '').toLowerCase();
   return excludeRules.some((r) => {
+    const keywords = splitKeywords(r.subjectKeyword).map((k) => k.toLowerCase());
     const senderMatch = r.sender ? fromLower.includes(r.sender.toLowerCase()) : null;
-    const subjectMatch = r.subjectKeyword ? subjectLower.includes(r.subjectKeyword.toLowerCase()) : null;
+    const subjectMatch = keywords.length ? keywords.some((k) => subjectLower.includes(k)) : null;
     if (senderMatch !== null && subjectMatch !== null) return senderMatch && subjectMatch;
     if (senderMatch !== null) return senderMatch;
     if (subjectMatch !== null) return subjectMatch;
@@ -218,7 +231,13 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
     for (const rule of includeRules) {
       const parts = [];
       if (rule.sender) parts.push(`from:${rule.sender}`);
-      if (rule.subjectKeyword) parts.push(`subject:${rule.subjectKeyword}`);
+      const keywords = splitKeywords(rule.subjectKeyword);
+      const subjectTerm = (k) => (k.includes(' ') ? `subject:"${k}"` : `subject:${k}`);
+      if (keywords.length === 1) {
+        parts.push(subjectTerm(keywords[0]));
+      } else if (keywords.length > 1) {
+        parts.push(`(${keywords.map(subjectTerm).join(' OR ')})`);
+      }
       if (!parts.length) continue;
       const ruleMessages = await searchInvoiceMessages(gmail, {
         query: `${parts.join(' ')} newer_than:${safeDaysBack}d`,
@@ -272,15 +291,18 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
     const { attachments, links } = extractAttachmentsAndLinks(full.payload);
     let handled = false;
 
-    // מקרה 1: יש קובץ PDF מצורף ישירות להודעה
+    // מקרה 1: יש קובץ מצורף ישירות להודעה - PDF, או תמונה (חשבונית מצולמת)
     for (const att of attachments) {
       handled = true;
       const buffer = await getAttachmentData(gmail, m.id, att.attachmentId);
-      const encrypted = isPdfEncrypted(buffer);
+      const isImage = att.kind === 'image';
+      // בתמונה אין מושג של "מוצפן" ואי אפשר לחלץ סכום אוטומטית מתוך תמונה
+      // (זה לא טקסט) - הסכום נשאר ריק, וניתן להזין אותו ידנית בדשבורד.
+      const encrypted = isImage ? false : isPdfEncrypted(buffer);
       let driveLink = '';
       const filename = `${date.toISOString().slice(0, 10)}_${att.filename}`;
 
-      const amount = encrypted ? null : await extractAmountFromPdf(buffer);
+      const amount = isImage || encrypted ? null : await extractAmountFromPdf(buffer);
       const { changeLabel, alert } = compareAmount({
         amount,
         from: effectiveFrom,
@@ -297,7 +319,7 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
           month,
           filename,
           buffer,
-          mimeType: 'application/pdf',
+          mimeType: isImage ? att.mimeType || 'image/jpeg' : 'application/pdf',
         });
         driveLink = uploaded.webViewLink;
         if (alert) alert.driveLink = driveLink;
@@ -305,16 +327,16 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
           date.toISOString().slice(0, 10),
           effectiveFrom,
           filename,
-          statusLabel(encrypted, knownPassword, false),
+          isImage ? 'חשבונית מצולמת - הורדה בהצלחה' : statusLabel(encrypted, knownPassword, false),
           knownPassword,
           driveLink,
           m.id,
           amount !== null ? amount.toFixed(2) : '',
           changeLabel,
           uploaded.id || '',
-          '',
+          isImage ? 'חשבונית מצולמת' : '',
           'לא שולם',
-          '',
+          isImage ? 'זוהתה כתמונה - הסכום לא זוהה אוטומטית, ניתן להזין ידנית' : '',
         ]);
       }
 
@@ -333,6 +355,7 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
         mode: 'attachment',
         amount,
         changeLabel,
+        isImage,
       });
     }
 
