@@ -465,9 +465,11 @@ const ruleSenderInput = document.getElementById('ruleSender');
 const ruleSubjectInput = document.getElementById('ruleSubject');
 const ruleNoteInput = document.getElementById('ruleNote');
 const addRuleBtn = document.getElementById('addRuleBtn');
+const cancelEditRuleBtn = document.getElementById('cancelEditRuleBtn');
 const rulesStatus = document.getElementById('rulesStatus');
 
 let searchRules = [];
+let editingRuleIndex = null; // אם לא null - הטופס למטה בעריכת כלל קיים באינדקס הזה, לא הוספה חדשה
 
 function renderSearchRules() {
   if (!searchRules.length) {
@@ -481,7 +483,10 @@ function renderSearchRules() {
         <td>${r.sender || ''}</td>
         <td>${r.subjectKeyword || ''}</td>
         <td>${r.note || ''}</td>
-        <td><button class="link-btn rule-delete-btn" data-idx="${i}">מחיקה</button></td>
+        <td>
+          <button class="link-btn rule-edit-btn" data-idx="${i}">עריכה</button>
+          <button class="link-btn rule-delete-btn" data-idx="${i}">מחיקה</button>
+        </td>
       </tr>`
     )
     .join('');
@@ -489,10 +494,42 @@ function renderSearchRules() {
     <thead><tr><th>סוג</th><th>שולח/דומיין</th><th>מילת מפתח בנושא</th><th>הערה</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+  rulesTableWrap.querySelectorAll('.rule-edit-btn').forEach((btn) => {
+    btn.addEventListener('click', () => startEditRule(Number(btn.dataset.idx)));
+  });
   rulesTableWrap.querySelectorAll('.rule-delete-btn').forEach((btn) => {
     btn.addEventListener('click', () => deleteRule(Number(btn.dataset.idx)));
   });
   renderActiveVendorsList();
+}
+
+// עריכה במקום של כלל קיים: ממלא את הטופס למטה בנתוני הכלל שנבחר, ומשנה
+// את מצב הטופס למצב "עריכה" (כפתור הוספה הופך לכפתור עדכון, ומופיע כפתור
+// ביטול עריכה). לחיצה על "עדכון כלל" תחליף את הכלל הקיים באינדקס הזה
+// במקום להוסיף כלל חדש לרשימה.
+function startEditRule(idx) {
+  const rule = searchRules[idx];
+  if (!rule) return;
+  editingRuleIndex = idx;
+  ruleTypeSelect.value = rule.type;
+  ruleSenderInput.value = rule.sender || '';
+  ruleSubjectInput.value = rule.subjectKeyword || '';
+  ruleNoteInput.value = rule.note || '';
+  addRuleBtn.textContent = 'עדכון כלל';
+  cancelEditRuleBtn.hidden = false;
+  rulesStatus.textContent = 'עריכת כלל קיים - שנה את הפרטים ולחץ על "עדכון כלל".';
+  ruleSenderInput.focus();
+}
+
+function cancelEditRule() {
+  editingRuleIndex = null;
+  ruleTypeSelect.value = 'כלול';
+  ruleSenderInput.value = '';
+  ruleSubjectInput.value = '';
+  ruleNoteInput.value = '';
+  addRuleBtn.textContent = 'הוספת כלל';
+  cancelEditRuleBtn.hidden = true;
+  rulesStatus.textContent = '';
 }
 
 // הפאנל הקבוע בעמוד "ספקים קבועים" (מימין) - תצוגה מצומצמת ונוחה של כללי
@@ -550,6 +587,15 @@ async function saveSearchRules() {
 }
 
 function deleteRule(idx) {
+  // אם באמצע עריכה של כלל אחר ומוחקים כלל שנמצא לפניו ברשימה, האינדקס של
+  // הכלל שבעריכה יזוז - נבטל את מצב העריכה כדי למנוע עדכון של כלל לא נכון.
+  if (editingRuleIndex !== null) {
+    if (idx === editingRuleIndex) {
+      cancelEditRule();
+    } else if (idx < editingRuleIndex) {
+      editingRuleIndex -= 1;
+    }
+  }
   searchRules.splice(idx, 1);
   renderSearchRules();
   saveSearchRules();
@@ -564,13 +610,17 @@ addRuleBtn.addEventListener('click', () => {
     rulesStatus.textContent = 'צריך למלא לפחות שולח/דומיין או מילת מפתח בנושא.';
     return;
   }
-  searchRules.push({ type, sender, subjectKeyword, note });
-  ruleSenderInput.value = '';
-  ruleSubjectInput.value = '';
-  ruleNoteInput.value = '';
+  if (editingRuleIndex !== null) {
+    searchRules[editingRuleIndex] = { type, sender, subjectKeyword, note };
+  } else {
+    searchRules.push({ type, sender, subjectKeyword, note });
+  }
+  cancelEditRule();
   renderSearchRules();
   saveSearchRules();
 });
+
+cancelEditRuleBtn.addEventListener('click', cancelEditRule);
 
 loadSearchRules();
 
