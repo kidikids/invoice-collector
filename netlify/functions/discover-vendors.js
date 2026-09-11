@@ -6,7 +6,8 @@
 // בדיוק כמו חיפוש רגיל ב-Gmail - שימושי כשמחפשים ספק ספציפי בשם שיודעים.
 const { google } = require('googleapis');
 const { getOAuthClient } = require('./lib/googleAuth');
-const { searchInvoiceMessages, findHeader } = require('./lib/gmail');
+const { searchInvoiceMessages, getMessageMeta, findHeader } = require('./lib/gmail');
+const { withRetry, isQuotaError } = require('./lib/apiRetry');
 const {
   ensureSheetTabs,
   getAllInvoiceRows,
@@ -18,8 +19,11 @@ const {
 
 // שמרני בכוונה - סריקה כזו עושה עד MAX_MESSAGES קריאות API בנפרד (רק מטא-דאטה,
 // לא הודעה מלאה), כדי לא לחרוג מזמן הריצה של פונקציית Netlify או ממכסת Gmail.
-const MAX_MESSAGES = 120;
-const CONCURRENCY = 8;
+// CONCURRENCY נמוך יחסית (ולא למשל 8-10) כדי לא לגרום לשגיאת "Quota exceeded...
+// Units per minute per user" כשסורקים טווח רחב - כל קריאה כבר עטופה גם בניסיון
+// חוזר אוטומטי (ראו lib/gmail.js), אבל עדיף למנוע את זה מראש.
+const MAX_MESSAGES = 100;
+const CONCURRENCY = 3;
 const MAX_VENDORS_RETURNED = 40;
 const MAX_DAYS_BACK = 730;
 
@@ -62,7 +66,7 @@ exports.handler = async (event) => {
     // (למשל וואטסאפ שהועבר ל-Gmail), בדיוק כמו ב"הספקים הקבועים שלי".
     let selfEmail = '';
     try {
-      const profile = await gmail.users.getProfile({ userId: 'me' });
+      const profile = await withRetry(() => gmail.users.getProfile({ userId: 'me' }));
       selfEmail = (profile.data.emailAddress || '').trim().toLowerCase();
     } catch (e) {
       selfEmail = '';
@@ -94,18 +98,13 @@ exports.handler = async (event) => {
 
     const map = {};
     await mapWithConcurrency(messages, CONCURRENCY, async (m) => {
-      let res;
+      let data;
       try {
-        res = await gmail.users.messages.get({
-          userId: 'me',
-          id: m.id,
-          format: 'metadata',
-          metadataHeaders: ['From', 'Subject'],
-        });
+        data = await getMessageMeta(gmail, m.id, ['From', 'Subject']);
       } catch (e) {
-        return; // הודעה בודדת שנכשלה לא צריכה להפיל את כל הסריקה
+        return; // הודעה בודדת שנכשלה (גם אחרי ניסיון חוזר) לא צריכה להפיל את כל הסריקה
       }
-      const from = findHeader(res.data.payload.headers, 'From');
+      const from = findHeader(data.payload.headers, 'From');
       if (!from || !from.includes('@')) return;
       const fromEmailMatch = (from.match(/<([^>]+)>/) || [])[1] || from;
       if (selfEmail && fromEmailMatch.trim().toLowerCase() === selfEmail) return;
@@ -139,6 +138,16 @@ exports.handler = async (event) => {
       }),
     };
   } catch (err) {
+    if (isQuotaError(err)) {
+      return {
+        statusCode: 429,
+        headers,
+        body: JSON.stringify({
+          error:
+            'חריגה זמנית ממכסת השימוש ב-Gmail (קורה כשסורקים הרבה הודעות בבת אחת). המערכת כבר ניסתה שוב כמה פעמים לבד, אך המכסה עדיין עמוסה - חכו 2-3 דקות ונסו שוב, אפשר גם עם טווח קצר יותר.',
+        }),
+      };
+    }
     return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }
 };
