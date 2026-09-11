@@ -23,7 +23,14 @@ const {
 const { isPdfEncrypted } = require('./pdfCheck');
 const { extractAmountFromPdf } = require('./amountExtract');
 
-const DEFAULT_QUERY = 'subject:חשבונית newer_than:60d';
+const DEFAULT_DAYS_BACK = 60;
+// ניתן לצמצם/להרחיב את טווח החיפוש ההיסטורי (למשל למשיכה לאחור חד-פעמית של ספק חדש) -
+// הגבלה שמרנית כדי לא לחרוג ממגבלת הזמן של פונקציית Netlify בהרצה אחת.
+const MAX_DAYS_BACK = 730;
+
+function buildDefaultQuery(daysBack) {
+  return `subject:חשבונית newer_than:${daysBack}d`;
+}
 
 function fetchUrl(url) {
   return new Promise((resolve, reject) => {
@@ -114,9 +121,11 @@ function compareAmount({ amount, from, filename, driveLink, mode, amountHistory 
 // מזהה קבצים מוצפנים (בלי לפצח סיסמאות), מנסה לזהות את סכום החיוב ולהשוות
 // לחודש קודם אצל אותו ספק, ומתעד/מעלה לדרייב + לגיליון.
 // dryRun=true מריץ את כל הלוגיקה אך לא כותב/מעלה כלום - לבדיקה בטוחה, כולל תצוגה מקדימה של התראות.
-async function runSync({ dryRun = false } = {}) {
+async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK } = {}) {
+  const safeDaysBack = Math.min(Math.max(Number(daysBack) || DEFAULT_DAYS_BACK, 1), MAX_DAYS_BACK);
   const results = {
     dryRun,
+    daysBack: safeDaysBack,
     matched: 0,
     downloaded: 0,
     encrypted: 0,
@@ -155,7 +164,7 @@ async function runSync({ dryRun = false } = {}) {
     selfEmail = '';
   }
 
-  const query = process.env.GMAIL_SEARCH_QUERY || DEFAULT_QUERY;
+  const query = process.env.GMAIL_SEARCH_QUERY || buildDefaultQuery(safeDaysBack);
   const baseMessages = await searchInvoiceMessages(gmail, { query, maxResults: 100 });
 
   // בנוסף לחיפוש הכללי לפי מילת מפתח בכותרת, מחפשים גם באופן יזום לפי כל
@@ -166,7 +175,7 @@ async function runSync({ dryRun = false } = {}) {
   const vendorKeys = Object.keys(vendorPasswords).filter(Boolean);
   for (const key of vendorKeys) {
     const vendorMessages = await searchInvoiceMessages(gmail, {
-      query: `from:${key} newer_than:60d`,
+      query: `from:${key} newer_than:${safeDaysBack}d`,
       maxResults: 20,
     });
     for (const vm of vendorMessages) {
@@ -189,7 +198,7 @@ async function runSync({ dryRun = false } = {}) {
     if (rule.subjectKeyword) parts.push(`subject:${rule.subjectKeyword}`);
     if (!parts.length) continue;
     const ruleMessages = await searchInvoiceMessages(gmail, {
-      query: `${parts.join(' ')} newer_than:60d`,
+      query: `${parts.join(' ')} newer_than:${safeDaysBack}d`,
       maxResults: 20,
     });
     for (const rm of ruleMessages) {
