@@ -657,6 +657,121 @@ addAndScanVendorsBtn.addEventListener('click', async () => {
 refreshDetectedVendorsBtn.addEventListener('click', loadDetectedVendors);
 loadDetectedVendors();
 
+// --- גילוי ספקים חדשים (סריקה רחבה ישירות ב-Gmail, לא רק מתוך מה שכבר תועד) ---
+const discoverSearchTerm = document.getElementById('discoverSearchTerm');
+const discoverRangeSelect = document.getElementById('discoverRangeSelect');
+const discoverVendorsBtn = document.getElementById('discoverVendorsBtn');
+const discoverStatus = document.getElementById('discoverStatus');
+const discoverVendorsWrap = document.getElementById('discoverVendorsWrap');
+const addSelectedDiscoveredBtn = document.getElementById('addSelectedDiscoveredBtn');
+const addAndScanDiscoveredBtn = document.getElementById('addAndScanDiscoveredBtn');
+const discoveredScanRangeSelect = document.getElementById('discoveredScanRangeSelect');
+const discoveredScanStatus = document.getElementById('discoveredScanStatus');
+const discoveredScanSummary = document.getElementById('discoveredScanSummary');
+const discoveredScanAlertsWrap = document.getElementById('discoveredScanAlertsWrap');
+const discoveredScanTableWrap = document.getElementById('discoveredScanTableWrap');
+
+let discoveredVendors = [];
+
+function statusBadgeForDiscovered(v) {
+  if (v.registered) return '<span class="badge ok">ברשימה הקבועה</span>';
+  if (v.everLogged) return '<span class="badge neutral">כבר תועד בעבר</span>';
+  return '<span class="badge warn">חדש - לא זוהה עד כה</span>';
+}
+
+function renderDiscoveredVendors() {
+  if (!discoveredVendors.length) {
+    discoverVendorsWrap.innerHTML = '<p>לא נמצאו תוצאות עדיין - לחצו "סריקה" כדי לחפש.</p>';
+    return;
+  }
+  const rows = discoveredVendors
+    .map(
+      (v, i) => `<tr>
+        <td>${v.registered ? '' : `<input type="checkbox" class="discovered-check" data-idx="${i}">`}</td>
+        <td>${v.displayName}</td>
+        <td>${v.key}</td>
+        <td>${v.count}</td>
+        <td>${statusBadgeForDiscovered(v)}</td>
+      </tr>`
+    )
+    .join('');
+  discoverVendorsWrap.innerHTML = `<table>
+    <thead><tr><th></th><th>שם</th><th>כתובת / דומיין</th><th>מס' הודעות תואמות</th><th>סטטוס</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+renderDiscoveredVendors();
+
+discoverVendorsBtn.addEventListener('click', async () => {
+  const term = discoverSearchTerm.value.trim();
+  discoverStatus.textContent = term ? `מחפש "${term}"...` : 'סורק את כל ה-PDF-ים... בטווח רחב זה יכול לקחת כמה עשרות שניות.';
+  discoverVendorsBtn.disabled = true;
+  try {
+    const termParam = term ? `&term=${encodeURIComponent(term)}` : '';
+    const res = await fetch(`/.netlify/functions/discover-vendors?daysBack=${discoverRangeSelect.value}${termParam}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'שגיאה');
+    discoveredVendors = data.vendors || [];
+    renderDiscoveredVendors();
+    const truncatedNote = data.truncated
+      ? ' (הגענו למגבלת הסריקה - ייתכן שיש עוד; אפשר להריץ שוב אחרי שמוסיפים את שנמצא, או לצמצם את הטווח).'
+      : '';
+    const scopeText = data.usedTerm ? `שמכילות "${data.usedTerm}"` : 'עם PDF מצורף';
+    discoverStatus.textContent = `נסרקו ${data.scannedMessages} הודעות ${scopeText}, נמצאו ${discoveredVendors.length} שולחים שונים.${truncatedNote}`;
+  } catch (err) {
+    discoverStatus.textContent = 'שגיאה: ' + err.message;
+  } finally {
+    discoverVendorsBtn.disabled = false;
+  }
+});
+
+function getSelectedDiscoveredVendors() {
+  return Array.from(discoverVendorsWrap.querySelectorAll('.discovered-check:checked')).map(
+    (cb) => discoveredVendors[Number(cb.dataset.idx)]
+  );
+}
+
+addSelectedDiscoveredBtn.addEventListener('click', async () => {
+  const selected = getSelectedDiscoveredVendors();
+  if (!selected.length) {
+    discoveredScanStatus.textContent = 'לא נבחרו ספקים.';
+    return;
+  }
+  discoveredScanStatus.textContent = 'מוסיף...';
+  await addVendorsToRules(selected);
+  renderDiscoveredVendors();
+  discoveredScanStatus.textContent = `נוספו ${selected.length} ספקים לרשימה הקבועה.`;
+});
+
+addAndScanDiscoveredBtn.addEventListener('click', async () => {
+  const selected = getSelectedDiscoveredVendors();
+  if (!selected.length) {
+    discoveredScanStatus.textContent = 'לא נבחרו ספקים.';
+    return;
+  }
+  if (
+    !confirm(
+      `להוסיף ${selected.length} ספקים לרשימה הקבועה ולהריץ עליהם סריקה היסטורית? הפעולה תוריד ותעלה קבצים בפועל.`
+    )
+  ) {
+    return;
+  }
+  await addVendorsToRules(selected);
+  renderDiscoveredVendors();
+  const keys = selected.map((v) => v.key);
+  await runSyncUI({
+    dryRun: false,
+    daysBack: Number(discoveredScanRangeSelect.value),
+    statusEl: discoveredScanStatus,
+    summaryEl: discoveredScanSummary,
+    alertsWrap: discoveredScanAlertsWrap,
+    tableWrap: discoveredScanTableWrap,
+    buttons: [addSelectedDiscoveredBtn, addAndScanDiscoveredBtn],
+    focusKeys: keys,
+  });
+});
+
 // --- מודל פרטי חשבונית ---
 const invoiceModal = document.getElementById('invoiceModal');
 const modalCloseBtn = document.getElementById('modalCloseBtn');

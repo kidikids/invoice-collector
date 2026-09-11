@@ -168,6 +168,43 @@
         </section>
 
         <section class="card">
+          <h3>גילוי ספקים חדשים / חיפוש לפי שם</h3>
+          <p>הרשימה למעלה מבוססת רק על מה שכבר תועד בגיליון. הכרטיס הזה עושה משהו אחר: סורק ישירות ב-Gmail בטווח שתבחרו. אפשר להשאיר את שדה החיפוש ריק כדי לסרוק את כל ההודעות עם קובץ PDF מצורף (גם בלי המילה "חשבונית" בכלל) - או להקליד שם ספק/מילת מפתח/כתובת מייל ספציפיים כדי לחפש בדיוק אותם, בדיוק כמו חיפוש רגיל ב-Gmail. סריקה בטווח רחב עשויה לקחת קצת יותר זמן.</p>
+          <div class="buttons" style="align-items:center; flex-wrap:wrap;">
+            <input type="text" id="discoverSearchTerm" placeholder="שם ספק / מילת מפתח / כתובת מייל (אופציונלי - ריק = כל ה-PDF-ים)" style="flex:1 1 260px; padding:8px 10px; border-radius:6px; border:1px solid var(--border); font-size:0.88rem;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem;">
+              טווח סריקה:
+              <select id="discoverRangeSelect">
+                <option value="90">3 חודשים</option>
+                <option value="180" selected>6 חודשים</option>
+                <option value="365">שנה</option>
+                <option value="730">שנתיים</option>
+              </select>
+            </label>
+            <button id="discoverVendorsBtn" class="primary">חיפוש</button>
+          </div>
+          <div id="discoverStatus" class="export-status"></div>
+          <div id="discoverVendorsWrap"></div>
+          <div class="buttons" style="margin-top:12px; align-items:center;">
+            <button id="addSelectedDiscoveredBtn">הוספת הנבחרים לרשימה הקבועה</button>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem;">
+              וגם סריקה היסטורית לטווח:
+              <select id="discoveredScanRangeSelect">
+                <option value="90">3 חודשים</option>
+                <option value="180" selected>6 חודשים</option>
+                <option value="365">שנה</option>
+                <option value="730">שנתיים</option>
+              </select>
+            </label>
+            <button id="addAndScanDiscoveredBtn" class="primary">הוספה + סריקה היסטורית</button>
+          </div>
+          <div id="discoveredScanStatus" class="export-status"></div>
+          <div id="discoveredScanSummary" class="summary"></div>
+          <div id="discoveredScanAlertsWrap"></div>
+          <div id="discoveredScanTableWrap"></div>
+        </section>
+
+        <section class="card">
           <h3>כללי משיכה מותאמים אישית</h3>
           <p>הגדירו כאן כתובות מייל/דומיינים ומילות מפתח בנושא שמהם <strong>כן</strong> תמיד למשוך חשבוניות (גם אם כותרת המייל לא תואמת את החיפוש הרגיל), וכן כאלה שמהם <strong>אין</strong> צורך למשוך בכלל (למשל שולח שמציף בהודעות לא רלוונטיות). אפשר למלא רק שולח, רק מילת מפתח, או שניהם יחד (במקרה כזה שניהם צריכים להתאים).</p>
           <div id="rulesTableWrap"></div>
