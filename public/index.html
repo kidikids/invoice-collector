@@ -49,6 +49,10 @@
               <h4>הספקים הגדולים ביותר</h4>
               <canvas id="vendorChart" height="220"></canvas>
             </div>
+            <div class="chart-box">
+              <h4>התפלגות לפי קטגוריה</h4>
+              <canvas id="categoryChart" height="220"></canvas>
+            </div>
           </div>
           <div id="recentIncreasesWrap"></div>
         </div>
@@ -77,7 +81,7 @@
             <h3>הדפסה והורדה לרו"ח</h3>
             <button id="refreshInvoiceListBtn" class="link-btn">רענון רשימה</button>
           </div>
-          <p>בחרו חשבוניות (או סננו לפי חודש) כדי להוריד אותן יחד כקובץ ZIP לשליחה לרו"ח, או למזג אותן ל-PDF אחד ולהדפיס הכל בפעולה אחת. מגבלה טכנית: עד 20 קבצים / כ-3.5MB בבחירה אחת - לבחירה גדולה יותר, פצלו לפי חודשים.</p>
+          <p>בחרו חשבוניות (או סננו לפי חודש) כדי להוריד אותן יחד כקובץ ZIP לשליחה לרו"ח, או למזג אותן ל-PDF אחד ולהדפיס הכל בפעולה אחת. מגבלה טכנית: עד 20 קבצים / כ-3.5MB בבחירה אחת - לבחירה גדולה יותר, פצלו לפי חודשים. לחיצה על שורה (מחוץ לתיבת הסימון) פותחת את פרטי החשבונית לעריכה - קטגוריה, סטטוס תשלום והערה.</p>
           <div class="invoice-list-controls">
             <label>סינון לפי חודש:
               <select id="monthFilter"><option value="">כל החודשים</option></select>
@@ -112,6 +116,23 @@
         </section>
 
         <section class="card">
+          <h3>כללי משיכה מותאמים אישית</h3>
+          <p>הגדירו כאן כתובות מייל/דומיינים ומילות מפתח בנושא שמהם <strong>כן</strong> תמיד למשוך חשבוניות (גם אם כותרת המייל לא תואמת את החיפוש הרגיל), וכן כאלה שמהם <strong>אין</strong> צורך למשוך בכלל (למשל שולח שמציף בהודעות לא רלוונטיות). אפשר למלא רק שולח, רק מילת מפתח, או שניהם יחד (במקרה כזה שניהם צריכים להתאים).</p>
+          <div id="rulesTableWrap"></div>
+          <div class="rule-form">
+            <select id="ruleType">
+              <option value="כלול">כלול (למשוך תמיד)</option>
+              <option value="החרג">החרג (אף פעם לא למשוך)</option>
+            </select>
+            <input type="text" id="ruleSender" placeholder="שולח / דומיין (אופציונלי)">
+            <input type="text" id="ruleSubject" placeholder="מילת מפתח בנושא (אופציונלי)">
+            <input type="text" id="ruleNote" placeholder="הערה (אופציונלי)">
+            <button id="addRuleBtn">הוספת כלל</button>
+          </div>
+          <div id="rulesStatus" class="export-status"></div>
+        </section>
+
+        <section class="card">
           <h3>קישורים שימושיים</h3>
           <p>עדכנו כאן ידנית את הקישורים שלכם לאחר ההגדרה (ערכו את הקובץ <code>public/index.html</code>):</p>
           <ul>
@@ -122,6 +143,59 @@
       </div>
 
     </main>
+  </div>
+
+  <div id="invoiceModal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modalVendorName">חשבונית</h3>
+        <button id="modalCloseBtn" class="link-btn">סגירה ✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-preview">
+          <iframe id="modalPreviewFrame" src="" title="תצוגה מקדימה של החשבונית"></iframe>
+        </div>
+        <div class="modal-fields">
+          <label>מקור
+            <input type="text" id="modalFrom" disabled>
+          </label>
+          <label>תאריך
+            <input type="text" id="modalDate" disabled>
+          </label>
+          <label>סכום
+            <input type="text" id="modalAmount" disabled>
+          </label>
+          <label>קטגוריה
+            <input type="text" id="modalCategory" list="categoryOptions" placeholder="למשל: תקשורת, שכירות...">
+          </label>
+          <datalist id="categoryOptions">
+            <option value="תקשורת/סלולר">
+            <option value="שכירות/ארנונה">
+            <option value="שיווק ופרסום">
+            <option value="תוכנה ושירותים דיגיטליים">
+            <option value="משרד וציוד">
+            <option value="רכב ותחבורה">
+            <option value="ביטוח">
+            <option value="אחר">
+          </datalist>
+          <label>סטטוס תשלום
+            <select id="modalPaymentStatus">
+              <option value="לא שולם">לא שולם</option>
+              <option value="שולם">שולם</option>
+              <option value="בטיפול">בטיפול</option>
+            </select>
+          </label>
+          <label>הערה
+            <textarea id="modalNote" rows="3"></textarea>
+          </label>
+          <div class="modal-actions">
+            <button id="modalSaveBtn" class="primary">שמירה</button>
+            <a id="modalDriveLink" href="#" target="_blank" class="button">פתיחה בדרייב</a>
+          </div>
+          <div id="modalStatus" class="export-status"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
