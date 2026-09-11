@@ -1,12 +1,27 @@
 // פונקציות עזר לחיפוש הודעות ב-Gmail וחילוץ קבצים/קישורים מתוכן.
+// כל קריאה בפועל ל-API עטופה ב-withRetry, כדי להתמודד לבד עם שגיאות מכסה
+// זמניות ("Quota exceeded... Units per minute per user") שקופצות כשסורקים
+// הרבה הודעות ברצף - במקום להיכשל מיד באמצע סריקה.
+
+const { withRetry } = require('./apiRetry');
 
 async function searchInvoiceMessages(gmail, { query, maxResults = 100 }) {
-  const res = await gmail.users.messages.list({ userId: 'me', q: query, maxResults });
+  const res = await withRetry(() => gmail.users.messages.list({ userId: 'me', q: query, maxResults }));
   return res.data.messages || [];
 }
 
 async function getMessage(gmail, id) {
-  const res = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
+  const res = await withRetry(() => gmail.users.messages.get({ userId: 'me', id, format: 'full' }));
+  return res.data;
+}
+
+// גרסה קלה יותר - שולפת רק כותרות נבחרות (למשל From/Subject) בלי את כל גוף
+// ההודעה והמצורפים. משמשת את "גילוי ספקים חדשים" שצריך לעבור על הרבה הודעות
+// רק כדי לדעת מי השולח, ולא רוצה להעמיס מכסה בכינם.
+async function getMessageMeta(gmail, id, headerNames) {
+  const res = await withRetry(() =>
+    gmail.users.messages.get({ userId: 'me', id, format: 'metadata', metadataHeaders: headerNames })
+  );
   return res.data;
 }
 
@@ -54,17 +69,20 @@ function extractAttachmentsAndLinks(payload) {
 }
 
 async function getAttachmentData(gmail, messageId, attachmentId) {
-  const res = await gmail.users.messages.attachments.get({
-    userId: 'me',
-    messageId,
-    id: attachmentId,
-  });
+  const res = await withRetry(() =>
+    gmail.users.messages.attachments.get({
+      userId: 'me',
+      messageId,
+      id: attachmentId,
+    })
+  );
   return Buffer.from(res.data.data, 'base64');
 }
 
 module.exports = {
   searchInvoiceMessages,
   getMessage,
+  getMessageMeta,
   findHeader,
   extractAttachmentsAndLinks,
   getAttachmentData,

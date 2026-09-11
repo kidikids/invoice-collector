@@ -22,6 +22,7 @@ const {
 } = require('./sheets');
 const { isPdfEncrypted } = require('./pdfCheck');
 const { extractAmountFromPdf } = require('./amountExtract');
+const { withRetry } = require('./apiRetry');
 
 const DEFAULT_DAYS_BACK = 60;
 // ניתן לצמצם/להרחיב את טווח החיפוש ההיסטורי (למשל למשיכה לאחור חד-פעמית של ספק חדש) -
@@ -158,7 +159,7 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
   // (למשל חשבונית שהועברה מוואטסאפ ל-Gmail), ולטפל בהן אחרת (ראו למעלה).
   let selfEmail = '';
   try {
-    const profile = await gmail.users.getProfile({ userId: 'me' });
+    const profile = await withRetry(() => gmail.users.getProfile({ userId: 'me' }));
     selfEmail = (profile.data.emailAddress || '').trim().toLowerCase();
   } catch (e) {
     selfEmail = '';
