@@ -1,11 +1,14 @@
-// טריגר ידני מהדשבורד: POST /.netlify/functions/sync-invoices?dryRun=true|false
+// טריגר ידני מהדשבורד: POST /.netlify/functions/sync-invoices?dryRun=true|false&daysBack=60
+// daysBack אופציונלי - משמש את מסך "חיפוש היסטורי" למשיכה לאחור לטווח רחב יותר מברירת המחדל.
 const { runSync } = require('./lib/runSync');
 
 exports.handler = async (event) => {
-  const dryRun = !!(event.queryStringParameters && event.queryStringParameters.dryRun === 'true');
+  const params = event.queryStringParameters || {};
+  const dryRun = params.dryRun === 'true';
+  const daysBack = params.daysBack ? Number(params.daysBack) : undefined;
 
   try {
-    const results = await runSync({ dryRun });
+    const results = await runSync({ dryRun, daysBack });
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
