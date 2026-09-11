@@ -34,12 +34,16 @@
       <div class="page" id="page-home">
         <div class="page-title-row">
           <h2>סקירה כללית</h2>
-          <button id="refreshStatsBtn" class="link-btn">רענון</button>
+          <div class="buttons">
+            <button id="customizeKpisBtn" class="link-btn">התאמה אישית של הדשבורד</button>
+            <button id="refreshStatsBtn" class="link-btn">רענון</button>
+          </div>
         </div>
 
         <div id="statsStatus" class="stats-status">טוען נתונים...</div>
         <div id="statsBody" class="stats-body" hidden>
           <div id="kpiGrid" class="kpi-grid"></div>
+          <div id="insightsWrap"></div>
           <div class="charts-grid">
             <div class="chart-box">
               <h4>מגמת הוצאות - 6 חודשים אחרונים</h4>
@@ -142,8 +146,25 @@
             <h3>הספקים הקבועים שלי</h3>
             <button id="refreshDetectedVendorsBtn" class="link-btn">רענון</button>
           </div>
-          <p>אלה השולחים שכבר זוהו בהיסטוריית החשבוניות שלכם. לחצו "הוספה לרשימה הקבועה" ליד ספק כדי שהמערכת תחפש את המיילים שלו ביוזמתה בכל חודש, גם אם כותרת המייל לא מכילה את המילה "חשבונית" - בדיוק כמו מילוי ידני בקטע "כללי משיכה מותאמים אישית" למטה, רק בלי להקליד כלום.</p>
+          <p>אלה השולחים שכבר זוהו בהיסטוריית החשבוניות שלכם. סמנו ספקים (אפשר כמה יחד) ולחצו "הוספה לרשימה הקבועה" כדי שהמערכת תחפש את המיילים שלהם ביוזמתה בכל חודש, גם אם כותרת המייל לא מכילה את המילה "חשבונית" - בדיוק כמו מילוי ידני בקטע "כללי משיכה מותאמים אישית" למטה, רק בלי להקליד כלום. אפשר גם להריץ מיד סריקה היסטורית לספקים שנוספו, כדי למשוך גם את החשבוניות הישנות שלהם ולא רק את החדשות.</p>
           <div id="detectedVendorsWrap"><p>טוען...</p></div>
+          <div class="buttons" style="margin-top:12px; align-items:center;">
+            <button id="addSelectedVendorsBtn">הוספת הנבחרים לרשימה הקבועה</button>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem;">
+              וגם סריקה היסטורית לטווח:
+              <select id="vendorScanRangeSelect">
+                <option value="90">3 חודשים</option>
+                <option value="180" selected>6 חודשים</option>
+                <option value="365">שנה</option>
+                <option value="730">שנתיים</option>
+              </select>
+            </label>
+            <button id="addAndScanVendorsBtn" class="primary">הוספה + סריקה היסטורית</button>
+          </div>
+          <div id="vendorScanStatus" class="export-status"></div>
+          <div id="vendorScanSummary" class="summary"></div>
+          <div id="vendorScanAlertsWrap"></div>
+          <div id="vendorScanTableWrap"></div>
         </section>
 
         <section class="card">
@@ -174,6 +195,22 @@
       </div>
 
     </main>
+  </div>
+
+  <div id="kpiCustomizeModal" class="modal-overlay" hidden>
+    <div class="modal-box narrow">
+      <div class="modal-header">
+        <h3>התאמה אישית של הדשבורד</h3>
+        <button id="kpiCustomizeCloseBtn" class="link-btn">סגירה ✕</button>
+      </div>
+      <div class="modal-body stacked">
+        <p>בחרו אילו קוביות נתונים יופיעו בעמוד הראשי:</p>
+        <div id="kpiCheckboxList" class="kpi-checkbox-list"></div>
+        <div class="modal-actions">
+          <button id="kpiCustomizeSaveBtn" class="primary">שמירה</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="invoiceModal" class="modal-overlay" hidden>

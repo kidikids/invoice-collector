@@ -18,12 +18,19 @@ const runBtn = document.getElementById('runBtn');
 const statsStatusEl = document.getElementById('statsStatus');
 const statsBodyEl = document.getElementById('statsBody');
 const kpiGridEl = document.getElementById('kpiGrid');
+const insightsWrapEl = document.getElementById('insightsWrap');
 const recentIncreasesWrap = document.getElementById('recentIncreasesWrap');
 const refreshStatsBtn = document.getElementById('refreshStatsBtn');
+const customizeKpisBtn = document.getElementById('customizeKpisBtn');
+const kpiCustomizeModal = document.getElementById('kpiCustomizeModal');
+const kpiCustomizeCloseBtn = document.getElementById('kpiCustomizeCloseBtn');
+const kpiCheckboxList = document.getElementById('kpiCheckboxList');
+const kpiCustomizeSaveBtn = document.getElementById('kpiCustomizeSaveBtn');
 
 let monthlyChartInstance = null;
 let vendorChartInstance = null;
 let categoryChartInstance = null;
+let lastStatsData = null;
 
 function fmtIls(n) {
   return `${Number(n).toLocaleString('he-IL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ₪`;
@@ -37,19 +44,147 @@ function kpiCard(label, value, sub, warn) {
   </div>`;
 }
 
-function renderKpis(s) {
+function monthOverMonthText(s) {
   const pct = s.monthOverMonthPct;
-  const pctText =
-    pct == null ? 'אין עדיין נתון לחודש קודם' : `${pct > 0 ? '+' : ''}${pct.toFixed(1)}% לעומת החודש הקודם`;
-  kpiGridEl.innerHTML = [
-    kpiCard('הוצאה החודש', fmtIls(s.thisMonthTotal), pctText, pct != null && pct > 0),
-    kpiCard('סה"כ מתועד', fmtIls(s.totalAllTime), `${s.invoiceCount} חשבוניות`),
-    kpiCard('טרם שולם', fmtIls(s.unpaidTotal || 0), `${s.unpaidCount || 0} חשבוניות`, (s.unpaidTotal || 0) > 0),
-    kpiCard('ספקים במעקב', s.vendorCount, ''),
-    kpiCard('עליות מחיר שזוהו', s.priceIncreaseCount, '', s.priceIncreaseCount > 0),
-    kpiCard('ממתין לסיסמה', s.encryptedPendingCount, '', s.encryptedPendingCount > 0),
-  ].join('');
+  return pct == null ? 'אין עדיין נתון לחודש קודם' : `${pct > 0 ? '+' : ''}${pct.toFixed(1)}% לעומת החודש הקודם`;
 }
+
+// קטלוג כל קוביות הנתונים האפשריות לעמוד הראשי - כל אחת עם מזהה קבוע,
+// תווית לתפריט ההתאמה האישית, ופונקציית רינדור. "default: true" = מוצג
+// כברירת מחדל למשתמש חדש שעדיין לא בחר בעצמו מה להציג.
+const KPI_DEFINITIONS = [
+  {
+    id: 'thisMonthTotal',
+    label: 'הוצאה החודש',
+    default: true,
+    render: (s) => kpiCard('הוצאה החודש', fmtIls(s.thisMonthTotal), monthOverMonthText(s), s.monthOverMonthPct != null && s.monthOverMonthPct > 0),
+  },
+  {
+    id: 'totalAllTime',
+    label: 'סה"כ מתועד (כל הזמנים)',
+    default: true,
+    render: (s) => kpiCard('סה"כ מתועד', fmtIls(s.totalAllTime), `${s.invoiceCount} חשבוניות`),
+  },
+  {
+    id: 'unpaidTotal',
+    label: 'טרם שולם',
+    default: true,
+    render: (s) => kpiCard('טרם שולם', fmtIls(s.unpaidTotal || 0), `${s.unpaidCount || 0} חשבוניות`, (s.unpaidTotal || 0) > 0),
+  },
+  {
+    id: 'vendorCount',
+    label: 'ספקים במעקב',
+    default: true,
+    render: (s) => kpiCard('ספקים במעקב', s.vendorCount, ''),
+  },
+  {
+    id: 'priceIncreaseCount',
+    label: 'עליות מחיר שזוהו',
+    default: true,
+    render: (s) => kpiCard('עליות מחיר שזוהו', s.priceIncreaseCount, '', s.priceIncreaseCount > 0),
+  },
+  {
+    id: 'encryptedPendingCount',
+    label: 'ממתין לסיסמה',
+    default: true,
+    render: (s) => kpiCard('ממתין לסיסמה', s.encryptedPendingCount, '', s.encryptedPendingCount > 0),
+  },
+  {
+    id: 'avgInvoiceAmount',
+    label: 'ממוצע לחשבונית',
+    default: false,
+    render: (s) => kpiCard('ממוצע לחשבונית', fmtIls(s.avgInvoiceAmount || 0), ''),
+  },
+  {
+    id: 'maxInvoice',
+    label: 'החשבונית הגדולה ביותר',
+    default: false,
+    render: (s) => kpiCard('החשבונית הגדולה ביותר', s.maxInvoice ? fmtIls(s.maxInvoice.amount) : '-', s.maxInvoice ? s.maxInvoice.vendor : ''),
+  },
+  {
+    id: 'topVendorShare',
+    label: 'ריכוזיות ספק מוביל',
+    default: false,
+    render: (s) =>
+      kpiCard(
+        'ריכוזיות ספק מוביל',
+        s.topVendorSharePct != null ? `${s.topVendorSharePct.toFixed(0)}%` : '-',
+        s.topVendors && s.topVendors[0] ? s.topVendors[0].name : '',
+        s.topVendorSharePct != null && s.topVendorSharePct >= 25
+      ),
+  },
+  {
+    id: 'uncategorizedCount',
+    label: 'חשבוניות ללא קטגוריה',
+    default: false,
+    render: (s) => kpiCard('ללא קטגוריה', s.uncategorizedCount || 0, s.uncategorizedCount ? `${fmtIls(s.uncategorizedTotal || 0)}` : '', (s.uncategorizedCount || 0) > 0),
+  },
+  {
+    id: 'invoiceCount',
+    label: 'סה"כ חשבוניות שתועדו',
+    default: false,
+    render: (s) => kpiCard('סה"כ חשבוניות', s.invoiceCount, ''),
+  },
+];
+
+function getEnabledKpiIds() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('kpiSelection') || 'null');
+    if (Array.isArray(saved) && saved.length) return saved.filter((id) => KPI_DEFINITIONS.some((d) => d.id === id));
+  } catch (e) {
+    // אין גישה ל-localStorage (למשל דפדפן בפרטיות) - פשוט נשתמש בברירת המחדל
+  }
+  return KPI_DEFINITIONS.filter((d) => d.default).map((d) => d.id);
+}
+
+function setEnabledKpiIds(ids) {
+  try {
+    localStorage.setItem('kpiSelection', JSON.stringify(ids));
+  } catch (e) {
+    // לא קריטי - ההתאמה האישית פשוט לא תישמר לפעם הבאה בדפדפן הזה
+  }
+}
+
+function renderKpis(s) {
+  const enabled = getEnabledKpiIds();
+  const html = KPI_DEFINITIONS.filter((d) => enabled.includes(d.id))
+    .map((d) => d.render(s))
+    .join('');
+  kpiGridEl.innerHTML = html || '<p>לא נבחרו קוביות להצגה - לחצו "התאמה אישית של הדשבורד" כדי לבחור.</p>';
+}
+
+function renderInsights(insights) {
+  if (!insights || !insights.length) {
+    insightsWrapEl.innerHTML = '';
+    return;
+  }
+  const cards = insights.map((ins) => `<div class="insight-card">${ins.text}</div>`).join('');
+  insightsWrapEl.innerHTML = `<h4 class="sub-title">תובנות אוטומטיות והמלצות</h4><div class="insights-grid">${cards}</div>`;
+}
+
+function openKpiCustomize() {
+  const enabled = getEnabledKpiIds();
+  kpiCheckboxList.innerHTML = KPI_DEFINITIONS.map(
+    (d) => `<label><input type="checkbox" value="${d.id}" ${enabled.includes(d.id) ? 'checked' : ''}> ${d.label}</label>`
+  ).join('');
+  kpiCustomizeModal.hidden = false;
+}
+
+function closeKpiCustomize() {
+  kpiCustomizeModal.hidden = true;
+}
+
+customizeKpisBtn.addEventListener('click', openKpiCustomize);
+kpiCustomizeCloseBtn.addEventListener('click', closeKpiCustomize);
+kpiCustomizeModal.addEventListener('click', (e) => {
+  if (e.target === kpiCustomizeModal) closeKpiCustomize();
+});
+kpiCustomizeSaveBtn.addEventListener('click', () => {
+  const ids = Array.from(kpiCheckboxList.querySelectorAll('input:checked')).map((cb) => cb.value);
+  setEnabledKpiIds(ids);
+  closeKpiCustomize();
+  if (lastStatsData) renderKpis(lastStatsData);
+});
 
 function renderMonthlyChart(months) {
   const ctx = document.getElementById('monthlyChart');
@@ -157,7 +292,9 @@ async function loadStats() {
       statsStatusEl.textContent = 'עדיין אין נתונים - הריצו סנכרון אמיתי כדי להתחיל לראות סטטיסטיקות.';
       return;
     }
+    lastStatsData = data;
     renderKpis(data);
+    renderInsights(data.insights);
     renderMonthlyChart(data.months);
     renderVendorChart(data.topVendors);
     renderCategoryChart(data.categories);
@@ -413,6 +550,13 @@ loadSearchRules();
 // --- הספקים הקבועים שלי (הצעות אוטומטיות מתוך היסטוריית החשבוניות) ---
 const detectedVendorsWrap = document.getElementById('detectedVendorsWrap');
 const refreshDetectedVendorsBtn = document.getElementById('refreshDetectedVendorsBtn');
+const addSelectedVendorsBtn = document.getElementById('addSelectedVendorsBtn');
+const addAndScanVendorsBtn = document.getElementById('addAndScanVendorsBtn');
+const vendorScanRangeSelect = document.getElementById('vendorScanRangeSelect');
+const vendorScanStatus = document.getElementById('vendorScanStatus');
+const vendorScanSummary = document.getElementById('vendorScanSummary');
+const vendorScanAlertsWrap = document.getElementById('vendorScanAlertsWrap');
+const vendorScanTableWrap = document.getElementById('vendorScanTableWrap');
 
 let detectedVendors = [];
 
@@ -424,24 +568,18 @@ function renderDetectedVendors() {
   const rows = detectedVendors
     .map(
       (v, i) => `<tr>
+        <td>${v.registered ? '' : `<input type="checkbox" class="vendor-check" data-idx="${i}">`}</td>
         <td>${v.displayName}</td>
         <td>${v.key}</td>
         <td>${v.count}</td>
-        <td>${
-          v.registered
-            ? '<span class="badge ok">ברשימה הקבועה</span>'
-            : `<button class="link-btn add-vendor-btn" data-idx="${i}">הוספה לרשימה הקבועה</button>`
-        }</td>
+        <td>${v.registered ? '<span class="badge ok">ברשימה הקבועה</span>' : ''}</td>
       </tr>`
     )
     .join('');
   detectedVendorsWrap.innerHTML = `<table>
-    <thead><tr><th>שם</th><th>כתובת / דומיין</th><th>מס' חשבוניות</th><th></th></tr></thead>
+    <thead><tr><th></th><th>שם</th><th>כתובת / דומיין</th><th>מס' חשבוניות</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
-  detectedVendorsWrap.querySelectorAll('.add-vendor-btn').forEach((btn) => {
-    btn.addEventListener('click', () => addDetectedVendor(detectedVendors[Number(btn.dataset.idx)]));
-  });
 }
 
 async function loadDetectedVendors() {
@@ -457,19 +595,64 @@ async function loadDetectedVendors() {
   }
 }
 
-async function addDetectedVendor(vendor) {
-  if (!vendor) return;
-  searchRules.push({
-    type: 'כלול',
-    sender: vendor.key,
-    subjectKeyword: '',
-    note: `נוסף אוטומטית מתוך היסטוריית חשבוניות (${vendor.displayName})`,
+function getSelectedDetectedVendors() {
+  return Array.from(detectedVendorsWrap.querySelectorAll('.vendor-check:checked')).map(
+    (cb) => detectedVendors[Number(cb.dataset.idx)]
+  );
+}
+
+async function addVendorsToRules(vendors) {
+  vendors.forEach((v) => {
+    searchRules.push({
+      type: 'כלול',
+      sender: v.key,
+      subjectKeyword: '',
+      note: `נוסף אוטומטית מתוך היסטוריית חשבוניות (${v.displayName})`,
+    });
+    v.registered = true;
   });
   renderSearchRules();
-  await saveSearchRules();
-  vendor.registered = true;
   renderDetectedVendors();
+  await saveSearchRules();
 }
+
+addSelectedVendorsBtn.addEventListener('click', async () => {
+  const selected = getSelectedDetectedVendors();
+  if (!selected.length) {
+    vendorScanStatus.textContent = 'לא נבחרו ספקים.';
+    return;
+  }
+  vendorScanStatus.textContent = 'מוסיף...';
+  await addVendorsToRules(selected);
+  vendorScanStatus.textContent = `נוספו ${selected.length} ספקים לרשימה הקבועה.`;
+});
+
+addAndScanVendorsBtn.addEventListener('click', async () => {
+  const selected = getSelectedDetectedVendors();
+  if (!selected.length) {
+    vendorScanStatus.textContent = 'לא נבחרו ספקים.';
+    return;
+  }
+  if (
+    !confirm(
+      `להוסיף ${selected.length} ספקים לרשימה הקבועה ולהריץ עליהם סריקה היסטורית? הפעולה תוריד ותעלה קבצים בפועל.`
+    )
+  ) {
+    return;
+  }
+  await addVendorsToRules(selected);
+  const keys = selected.map((v) => v.key);
+  await runSyncUI({
+    dryRun: false,
+    daysBack: Number(vendorScanRangeSelect.value),
+    statusEl: vendorScanStatus,
+    summaryEl: vendorScanSummary,
+    alertsWrap: vendorScanAlertsWrap,
+    tableWrap: vendorScanTableWrap,
+    buttons: [addSelectedVendorsBtn, addAndScanVendorsBtn],
+    focusKeys: keys,
+  });
+});
 
 refreshDetectedVendorsBtn.addEventListener('click', loadDetectedVendors);
 loadDetectedVendors();
@@ -635,13 +818,14 @@ function renderTable(items, targetEl) {
 
 // מריץ סנכרון (רגיל או חיפוש היסטורי) ומצייר את התוצאה לתוך אלמנטים נתונים -
 // כך אותה לוגיקה משרתת גם את כפתורי הסנכרון הרגילים וגם את מסך "חיפוש היסטורי".
-async function runSyncUI({ dryRun, daysBack, statusEl: targetStatusEl, summaryEl: targetSummaryEl, alertsWrap: targetAlertsWrap, tableWrap: targetTableWrap, buttons }) {
+async function runSyncUI({ dryRun, daysBack, statusEl: targetStatusEl, summaryEl: targetSummaryEl, alertsWrap: targetAlertsWrap, tableWrap: targetTableWrap, buttons, focusKeys }) {
   setBusy(buttons, true, dryRun ? 'מריץ בדיקה יבשה...' : 'מריץ סנכרון אמיתי - מוריד ומעלה קבצים...', targetStatusEl);
   targetSummaryEl.innerHTML = '';
   targetAlertsWrap.innerHTML = '';
   targetTableWrap.innerHTML = '';
   try {
-    const res = await fetch(`/.netlify/functions/sync-invoices?dryRun=${dryRun}&daysBack=${daysBack}`);
+    const focusParam = focusKeys && focusKeys.length ? `&focusKeys=${encodeURIComponent(focusKeys.join(','))}` : '';
+    const res = await fetch(`/.netlify/functions/sync-invoices?dryRun=${dryRun}&daysBack=${daysBack}${focusParam}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'שגיאה לא ידועה');
     renderSummary(data, targetSummaryEl);
@@ -651,6 +835,7 @@ async function runSyncUI({ dryRun, daysBack, statusEl: targetStatusEl, summaryEl
     if (!dryRun) {
       loadStats();
       loadInvoiceList();
+      loadDetectedVendors();
     }
   } catch (err) {
     setBusy(buttons, false, '', targetStatusEl);
