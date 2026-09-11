@@ -22,6 +22,10 @@ function monthLabel(key) {
   return `${names[Number(m) - 1]} ${y}`;
 }
 
+function fmtIls(n) {
+  return Math.round(n || 0).toLocaleString('he-IL');
+}
+
 function buildStats(rows) {
   const now = new Date();
   const vendorTotals = {}; // key -> { name, total, count }
@@ -29,9 +33,11 @@ function buildStats(rows) {
   const categoryTotals = {}; // שם קטגוריה -> { total, count }
   let totalAllTime = 0;
   let invoiceCount = 0;
+  let amountCount = 0;
   let encryptedPendingCount = 0;
   let unpaidTotal = 0;
   let unpaidCount = 0;
+  let maxInvoice = null; // {amount, vendor, date, driveLink}
   const priceIncreaseRows = [];
 
   rows.forEach((row) => {
@@ -54,6 +60,10 @@ function buildStats(rows) {
     const amount = amountStr ? parseFloat(String(amountStr).replace(/,/g, '')) : null;
     if (amount !== null && !Number.isNaN(amount)) {
       totalAllTime += amount;
+      amountCount += 1;
+      if (!maxInvoice || amount > maxInvoice.amount) {
+        maxInvoice = { amount, vendor: vendorDisplayName(from), date: dateStr, driveLink };
+      }
       const key = extractVendorKey(from);
       if (!vendorTotals[key]) vendorTotals[key] = { name: vendorDisplayName(from), total: 0, count: 0 };
       vendorTotals[key].total += amount;
@@ -105,6 +115,69 @@ function buildStats(rows) {
     .map(([name, v]) => ({ name, total: Math.round(v.total * 100) / 100, count: v.count }))
     .sort((a, b) => b.total - a.total);
 
+  const uncategorized = categoryTotals['ללא קטגוריה'] || { total: 0, count: 0 };
+  const avgInvoiceAmount = amountCount ? totalAllTime / amountCount : 0;
+  const topVendorSharePct =
+    topVendors.length && totalAllTime > 0 ? (topVendors[0].total / totalAllTime) * 100 : null;
+
+  // --- תובנות אוטומטיות: ניתוח חוקים פשוט (לא AI) על הנתונים שכבר תועדו,
+  // כדי להצביע על דברים ששווה לבדוק - ריכוזיות ספק/קטגוריה, חשבוניות לא
+  // מסווגות, עליות מחיר, קפיצה חודשית וכו'.
+  const insights = [];
+
+  if (categories.length && totalAllTime > 0) {
+    const top = categories[0];
+    const pct = (top.total / totalAllTime) * 100;
+    if (top.name !== 'ללא קטגוריה' && pct >= 30) {
+      insights.push({
+        type: 'category-concentration',
+        text: `הקטגוריה "${top.name}" מהווה ${pct.toFixed(0)}% מכלל ההוצאות שתועדו (${fmtIls(top.total)} ₪) - כדאי לבדוק אם יש מקום לצמצם או למקד מו"מ מול הספקים שם.`,
+      });
+    }
+  }
+
+  if (uncategorized.count > 0) {
+    insights.push({
+      type: 'uncategorized',
+      text: `${uncategorized.count} חשבוניות (${fmtIls(uncategorized.total)} ₪) עדיין ללא קטגוריה - סיווג שלהן דרך מסך פרטי החשבונית ייתן תמונה מדויקת יותר של ההוצאות.`,
+    });
+  }
+
+  if (unpaidCount > 0) {
+    insights.push({
+      type: 'unpaid',
+      text: `יש ${unpaidCount} חשבוניות בסך ${fmtIls(unpaidTotal)} ₪ שמסומנות "לא שולם" - כדאי לוודא שהסטטוס עדכני.`,
+    });
+  }
+
+  if (priceIncreaseRows.length > 0) {
+    insights.push({
+      type: 'price-increase',
+      text: `זוהו ${priceIncreaseRows.length} עליות מחיר לאחרונה - שווה לבדוק מול הספקים אם יש הצדקה לעלייה.`,
+    });
+  }
+
+  if (topVendorSharePct !== null && topVendorSharePct >= 25) {
+    insights.push({
+      type: 'vendor-concentration',
+      text: `הספק "${topVendors[0].name}" לבדו מהווה ${topVendorSharePct.toFixed(0)}% מסך ההוצאות שתועדו - תלות גבוהה בספק בודד.`,
+    });
+  }
+
+  if (monthOverMonthPct !== null && monthOverMonthPct >= 15) {
+    insights.push({
+      type: 'month-jump',
+      text: `ההוצאה החודש עלתה ב-${monthOverMonthPct.toFixed(0)}% לעומת החודש הקודם - כדאי לבדוק אם מדובר בהוצאה חד-פעמית או במגמה מתמשכת.`,
+    });
+  }
+
+  if (encryptedPendingCount > 0) {
+    insights.push({
+      type: 'encrypted-pending',
+      text: `${encryptedPendingCount} חשבוניות ממתינות לסיסמה כדי שנוכל לזהות את הסכום שלהן - השלימו את הסיסמה בלשונית "ספקים" בגיליון.`,
+    });
+  }
+
   return {
     invoiceCount,
     vendorCount: Object.keys(vendorTotals).length,
@@ -115,11 +188,17 @@ function buildStats(rows) {
     monthOverMonthPct,
     months,
     topVendors,
+    topVendorSharePct,
     priceIncreaseCount: priceIncreaseRows.length,
     recentIncreases,
     categories,
     unpaidTotal: Math.round(unpaidTotal * 100) / 100,
     unpaidCount,
+    avgInvoiceAmount: Math.round(avgInvoiceAmount * 100) / 100,
+    maxInvoice,
+    uncategorizedCount: uncategorized.count,
+    uncategorizedTotal: Math.round(uncategorized.total * 100) / 100,
+    insights,
   };
 }
 

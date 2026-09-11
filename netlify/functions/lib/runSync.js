@@ -121,7 +121,7 @@ function compareAmount({ amount, from, filename, driveLink, mode, amountHistory 
 // מזהה קבצים מוצפנים (בלי לפצח סיסמאות), מנסה לזהות את סכום החיוב ולהשוות
 // לחודש קודם אצל אותו ספק, ומתעד/מעלה לדרייב + לגיליון.
 // dryRun=true מריץ את כל הלוגיקה אך לא כותב/מעלה כלום - לבדיקה בטוחה, כולל תצוגה מקדימה של התראות.
-async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK } = {}) {
+async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys = null } = {}) {
   const safeDaysBack = Math.min(Math.max(Number(daysBack) || DEFAULT_DAYS_BACK, 1), MAX_DAYS_BACK);
   const results = {
     dryRun,
@@ -164,47 +164,70 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK } = {}) {
     selfEmail = '';
   }
 
-  const query = process.env.GMAIL_SEARCH_QUERY || buildDefaultQuery(safeDaysBack);
-  const baseMessages = await searchInvoiceMessages(gmail, { query, maxResults: 100 });
-
-  // בנוסף לחיפוש הכללי לפי מילת מפתח בכותרת, מחפשים גם באופן יזום לפי כל
-  // שולח/דומיין שמולא בלשונית "ספקים" - כך ספק שמוכר (למשל בזק) יימצא בכל
-  // חודש גם אם כותרת המייל שלו לא מכילה את המילה "חשבונית".
-  const messages = [...baseMessages];
-  const seenIds = new Set(baseMessages.map((m) => m.id));
-  const vendorKeys = Object.keys(vendorPasswords).filter(Boolean);
-  for (const key of vendorKeys) {
-    const vendorMessages = await searchInvoiceMessages(gmail, {
-      query: `from:${key} newer_than:${safeDaysBack}d`,
-      maxResults: 20,
-    });
-    for (const vm of vendorMessages) {
-      if (!seenIds.has(vm.id)) {
-        seenIds.add(vm.id);
-        messages.push(vm);
-      }
-    }
-  }
-
   // כללי חיפוש נוספים שהוגדרו במסך "הגדרות ועזרה" באפליקציה - כלל "כלול" עם
   // שולח ו/או מילת מפתח בנושא מוסיף חיפוש יזום נוסף; כלל "החרג" מסונן בהמשך.
   const searchRules = await getSearchRules(sheets, spreadsheetId);
   const includeRules = searchRules.filter((r) => r.type === RULE_TYPE_INCLUDE);
   const excludeRules = searchRules.filter((r) => r.type === RULE_TYPE_EXCLUDE);
 
-  for (const rule of includeRules) {
-    const parts = [];
-    if (rule.sender) parts.push(`from:${rule.sender}`);
-    if (rule.subjectKeyword) parts.push(`subject:${rule.subjectKeyword}`);
-    if (!parts.length) continue;
-    const ruleMessages = await searchInvoiceMessages(gmail, {
-      query: `${parts.join(' ')} newer_than:${safeDaysBack}d`,
-      maxResults: 20,
-    });
-    for (const rm of ruleMessages) {
-      if (!seenIds.has(rm.id)) {
-        seenIds.add(rm.id);
-        messages.push(rm);
+  const cleanFocusKeys = Array.isArray(focusKeys) ? focusKeys.map((k) => String(k || '').trim()).filter(Boolean) : [];
+
+  let messages = [];
+  let seenIds = new Set();
+
+  if (cleanFocusKeys.length) {
+    // סריקה ממוקדת: משמשת את מסך "הספקים הקבועים שלי" מיד אחרי הוספת ספק(ים)
+    // חדש(ים) - מחפשת רק את הודעות העבר שלהם, בלי להריץ שוב את כל שאר החיפושים
+    // (כותרת/ספקים קיימים/כללים קיימים), כדי לחסוך זמן.
+    for (const key of cleanFocusKeys) {
+      const focusMessages = await searchInvoiceMessages(gmail, {
+        query: `from:${key} newer_than:${safeDaysBack}d`,
+        maxResults: 50,
+      });
+      for (const fm of focusMessages) {
+        if (!seenIds.has(fm.id)) {
+          seenIds.add(fm.id);
+          messages.push(fm);
+        }
+      }
+    }
+  } else {
+    const query = process.env.GMAIL_SEARCH_QUERY || buildDefaultQuery(safeDaysBack);
+    const baseMessages = await searchInvoiceMessages(gmail, { query, maxResults: 100 });
+
+    // בנוסף לחיפוש הכללי לפי מילת מפתח בכותרת, מחפשים גם באופן יזום לפי כל
+    // שולח/דומיין שמולא בלשונית "ספקים" - כך ספק שמוכר (למשל בזק) יימצא בכל
+    // חודש גם אם כותרת המייל שלו לא מכילה את המילה "חשבונית".
+    messages = [...baseMessages];
+    seenIds = new Set(baseMessages.map((m) => m.id));
+    const vendorKeys = Object.keys(vendorPasswords).filter(Boolean);
+    for (const key of vendorKeys) {
+      const vendorMessages = await searchInvoiceMessages(gmail, {
+        query: `from:${key} newer_than:${safeDaysBack}d`,
+        maxResults: 20,
+      });
+      for (const vm of vendorMessages) {
+        if (!seenIds.has(vm.id)) {
+          seenIds.add(vm.id);
+          messages.push(vm);
+        }
+      }
+    }
+
+    for (const rule of includeRules) {
+      const parts = [];
+      if (rule.sender) parts.push(`from:${rule.sender}`);
+      if (rule.subjectKeyword) parts.push(`subject:${rule.subjectKeyword}`);
+      if (!parts.length) continue;
+      const ruleMessages = await searchInvoiceMessages(gmail, {
+        query: `${parts.join(' ')} newer_than:${safeDaysBack}d`,
+        maxResults: 20,
+      });
+      for (const rm of ruleMessages) {
+        if (!seenIds.has(rm.id)) {
+          seenIds.add(rm.id);
+          messages.push(rm);
+        }
       }
     }
   }
@@ -420,4 +443,4 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK } = {}) {
   return results;
 }
 
-module.exports = { runSync, DEFAULT_QUERY };
+module.exports = { runSync, DEFAULT_DAYS_BACK };
