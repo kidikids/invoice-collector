@@ -23,6 +23,7 @@ const refreshStatsBtn = document.getElementById('refreshStatsBtn');
 
 let monthlyChartInstance = null;
 let vendorChartInstance = null;
+let categoryChartInstance = null;
 
 function fmtIls(n) {
   return `${Number(n).toLocaleString('he-IL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ₪`;
@@ -43,6 +44,7 @@ function renderKpis(s) {
   kpiGridEl.innerHTML = [
     kpiCard('הוצאה החודש', fmtIls(s.thisMonthTotal), pctText, pct != null && pct > 0),
     kpiCard('סה"כ מתועד', fmtIls(s.totalAllTime), `${s.invoiceCount} חשבוניות`),
+    kpiCard('טרם שולם', fmtIls(s.unpaidTotal || 0), `${s.unpaidCount || 0} חשבוניות`, (s.unpaidTotal || 0) > 0),
     kpiCard('ספקים במעקב', s.vendorCount, ''),
     kpiCard('עליות מחיר שזוהו', s.priceIncreaseCount, '', s.priceIncreaseCount > 0),
     kpiCard('ממתין לסיסמה', s.encryptedPendingCount, '', s.encryptedPendingCount > 0),
@@ -104,6 +106,23 @@ function renderVendorChart(topVendors) {
   });
 }
 
+function renderCategoryChart(categories) {
+  const ctx = document.getElementById('categoryChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  if (categoryChartInstance) categoryChartInstance.destroy();
+  const palette = ['#4f46e5', '#0ea5e9', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#14b8a6', '#64748b'];
+  categoryChartInstance = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: (categories || []).map((c) => c.name),
+      datasets: [{ data: (categories || []).map((c) => c.total), backgroundColor: palette }],
+    },
+    options: {
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+    },
+  });
+}
+
 function renderRecentIncreases(list) {
   if (!list || !list.length) {
     recentIncreasesWrap.innerHTML = '';
@@ -141,6 +160,7 @@ async function loadStats() {
     renderKpis(data);
     renderMonthlyChart(data.months);
     renderVendorChart(data.topVendors);
+    renderCategoryChart(data.categories);
     renderRecentIncreases(data.recentIncreases);
     statsStatusEl.hidden = true;
     statsBodyEl.hidden = false;
@@ -172,6 +192,12 @@ function escapeAttr(s) {
   return String(s || '').replace(/"/g, '&quot;');
 }
 
+function paymentBadge(status) {
+  if (status === 'שולם') return '<span class="badge ok">שולם</span>';
+  if (status === 'בטיפול') return '<span class="badge warn">בטיפול</span>';
+  return '<span class="badge err">לא שולם</span>';
+}
+
 function renderInvoiceList() {
   const filterVal = monthFilter.value;
   const filtered = filterVal ? allInvoices.filter((it) => invoiceMonthKey(it.date) === filterVal) : allInvoices;
@@ -181,19 +207,30 @@ function renderInvoiceList() {
   }
   const rows = filtered
     .map(
-      (it) => `<tr>
+      (it) => `<tr data-idx="${allInvoices.indexOf(it)}">
         <td><input type="checkbox" class="invoice-check" data-id="${it.driveFileId}" data-filename="${escapeAttr(it.filename)}"></td>
         <td>${it.date}</td>
         <td>${it.from}</td>
         <td>${it.filename}</td>
         <td>${it.amount ? it.amount + ' ₪' : ''}</td>
+        <td>${it.category ? `<span class="badge neutral">${it.category}</span>` : ''}</td>
+        <td>${paymentBadge(it.paymentStatus)}</td>
       </tr>`
     )
     .join('');
   invoiceListWrap.innerHTML = `<table>
-    <thead><tr><th></th><th>תאריך</th><th>שולח</th><th>קובץ</th><th>סכום</th></tr></thead>
+    <thead><tr><th></th><th>תאריך</th><th>שולח</th><th>קובץ</th><th>סכום</th><th>קטגוריה</th><th>תשלום</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+  invoiceListWrap.querySelectorAll('.invoice-check').forEach((cb) => {
+    cb.addEventListener('click', (e) => e.stopPropagation());
+  });
+  invoiceListWrap.querySelectorAll('tbody tr').forEach((tr) => {
+    tr.addEventListener('click', () => {
+      const idx = Number(tr.dataset.idx);
+      openInvoiceModal(allInvoices[idx]);
+    });
+  });
 }
 
 function populateMonthFilter() {
@@ -284,22 +321,246 @@ mergePrintBtn.addEventListener('click', () => exportSelected('merge'));
 refreshInvoiceListBtn.addEventListener('click', loadInvoiceList);
 loadInvoiceList();
 
-function setBusy(busy, msg) {
-  dryRunBtn.disabled = busy;
-  runBtn.disabled = busy;
-  statusEl.textContent = msg || '';
+// --- כללי משיכה מותאמים אישית (הגדרות) ---
+const rulesTableWrap = document.getElementById('rulesTableWrap');
+const ruleTypeSelect = document.getElementById('ruleType');
+const ruleSenderInput = document.getElementById('ruleSender');
+const ruleSubjectInput = document.getElementById('ruleSubject');
+const ruleNoteInput = document.getElementById('ruleNote');
+const addRuleBtn = document.getElementById('addRuleBtn');
+const rulesStatus = document.getElementById('rulesStatus');
+
+let searchRules = [];
+
+function renderSearchRules() {
+  if (!searchRules.length) {
+    rulesTableWrap.innerHTML = '<p>אין כללים מותאמים אישית עדיין.</p>';
+    return;
+  }
+  const rows = searchRules
+    .map(
+      (r, i) => `<tr>
+        <td><span class="badge ${r.type === 'החרג' ? 'err' : 'ok'}">${r.type}</span></td>
+        <td>${r.sender || ''}</td>
+        <td>${r.subjectKeyword || ''}</td>
+        <td>${r.note || ''}</td>
+        <td><button class="link-btn rule-delete-btn" data-idx="${i}">מחיקה</button></td>
+      </tr>`
+    )
+    .join('');
+  rulesTableWrap.innerHTML = `<table>
+    <thead><tr><th>סוג</th><th>שולח/דומיין</th><th>מילת מפתח בנושא</th><th>הערה</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  rulesTableWrap.querySelectorAll('.rule-delete-btn').forEach((btn) => {
+    btn.addEventListener('click', () => deleteRule(Number(btn.dataset.idx)));
+  });
 }
 
-function renderSummary(r) {
+async function loadSearchRules() {
+  try {
+    const res = await fetch('/.netlify/functions/get-search-rules');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'שגיאה');
+    searchRules = data.rules || [];
+    renderSearchRules();
+  } catch (err) {
+    rulesTableWrap.innerHTML = `<p style="color:#b91c1c">שגיאה בטעינת כללים: ${err.message}</p>`;
+  }
+}
+
+async function saveSearchRules() {
+  rulesStatus.textContent = 'שומר...';
+  try {
+    const res = await fetch('/.netlify/functions/save-search-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules: searchRules }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'שגיאה');
+    rulesStatus.textContent = 'נשמר.';
+  } catch (err) {
+    rulesStatus.textContent = 'שגיאה בשמירה: ' + err.message;
+  }
+}
+
+function deleteRule(idx) {
+  searchRules.splice(idx, 1);
+  renderSearchRules();
+  saveSearchRules();
+}
+
+addRuleBtn.addEventListener('click', () => {
+  const type = ruleTypeSelect.value;
+  const sender = ruleSenderInput.value.trim();
+  const subjectKeyword = ruleSubjectInput.value.trim();
+  const note = ruleNoteInput.value.trim();
+  if (!sender && !subjectKeyword) {
+    rulesStatus.textContent = 'צריך למלא לפחות שולח/דומיין או מילת מפתח בנושא.';
+    return;
+  }
+  searchRules.push({ type, sender, subjectKeyword, note });
+  ruleSenderInput.value = '';
+  ruleSubjectInput.value = '';
+  ruleNoteInput.value = '';
+  renderSearchRules();
+  saveSearchRules();
+});
+
+loadSearchRules();
+
+// --- הספקים הקבועים שלי (הצעות אוטומטיות מתוך היסטוריית החשבוניות) ---
+const detectedVendorsWrap = document.getElementById('detectedVendorsWrap');
+const refreshDetectedVendorsBtn = document.getElementById('refreshDetectedVendorsBtn');
+
+let detectedVendors = [];
+
+function renderDetectedVendors() {
+  if (!detectedVendors.length) {
+    detectedVendorsWrap.innerHTML = '<p>עדיין לא זוהו ספקים - הריצו סנכרון כדי להתחיל.</p>';
+    return;
+  }
+  const rows = detectedVendors
+    .map(
+      (v, i) => `<tr>
+        <td>${v.displayName}</td>
+        <td>${v.key}</td>
+        <td>${v.count}</td>
+        <td>${
+          v.registered
+            ? '<span class="badge ok">ברשימה הקבועה</span>'
+            : `<button class="link-btn add-vendor-btn" data-idx="${i}">הוספה לרשימה הקבועה</button>`
+        }</td>
+      </tr>`
+    )
+    .join('');
+  detectedVendorsWrap.innerHTML = `<table>
+    <thead><tr><th>שם</th><th>כתובת / דומיין</th><th>מס' חשבוניות</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  detectedVendorsWrap.querySelectorAll('.add-vendor-btn').forEach((btn) => {
+    btn.addEventListener('click', () => addDetectedVendor(detectedVendors[Number(btn.dataset.idx)]));
+  });
+}
+
+async function loadDetectedVendors() {
+  detectedVendorsWrap.innerHTML = '<p>טוען...</p>';
+  try {
+    const res = await fetch('/.netlify/functions/detected-vendors');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'שגיאה');
+    detectedVendors = data.vendors || [];
+    renderDetectedVendors();
+  } catch (err) {
+    detectedVendorsWrap.innerHTML = `<p style="color:#b91c1c">שגיאה: ${err.message}</p>`;
+  }
+}
+
+async function addDetectedVendor(vendor) {
+  if (!vendor) return;
+  searchRules.push({
+    type: 'כלול',
+    sender: vendor.key,
+    subjectKeyword: '',
+    note: `נוסף אוטומטית מתוך היסטוריית חשבוניות (${vendor.displayName})`,
+  });
+  renderSearchRules();
+  await saveSearchRules();
+  vendor.registered = true;
+  renderDetectedVendors();
+}
+
+refreshDetectedVendorsBtn.addEventListener('click', loadDetectedVendors);
+loadDetectedVendors();
+
+// --- מודל פרטי חשבונית ---
+const invoiceModal = document.getElementById('invoiceModal');
+const modalCloseBtn = document.getElementById('modalCloseBtn');
+const modalVendorName = document.getElementById('modalVendorName');
+const modalPreviewFrame = document.getElementById('modalPreviewFrame');
+const modalFrom = document.getElementById('modalFrom');
+const modalDate = document.getElementById('modalDate');
+const modalAmount = document.getElementById('modalAmount');
+const modalCategory = document.getElementById('modalCategory');
+const modalPaymentStatus = document.getElementById('modalPaymentStatus');
+const modalNote = document.getElementById('modalNote');
+const modalSaveBtn = document.getElementById('modalSaveBtn');
+const modalDriveLink = document.getElementById('modalDriveLink');
+const modalStatus = document.getElementById('modalStatus');
+
+let currentInvoice = null;
+
+function openInvoiceModal(item) {
+  if (!item) return;
+  currentInvoice = item;
+  modalVendorName.textContent = item.from || 'חשבונית';
+  modalPreviewFrame.src = item.driveFileId ? `https://drive.google.com/file/d/${item.driveFileId}/preview` : '';
+  modalFrom.value = item.from || '';
+  modalDate.value = item.date || '';
+  modalAmount.value = item.amount ? `${item.amount} ₪` : 'לא זוהה אוטומטית';
+  modalCategory.value = item.category || '';
+  modalPaymentStatus.value = item.paymentStatus || 'לא שולם';
+  modalNote.value = item.note || '';
+  modalDriveLink.href = item.driveLink || '#';
+  modalStatus.textContent = '';
+  invoiceModal.hidden = false;
+}
+
+function closeInvoiceModal() {
+  invoiceModal.hidden = true;
+  modalPreviewFrame.src = '';
+  currentInvoice = null;
+}
+
+modalCloseBtn.addEventListener('click', closeInvoiceModal);
+invoiceModal.addEventListener('click', (e) => {
+  if (e.target === invoiceModal) closeInvoiceModal();
+});
+
+modalSaveBtn.addEventListener('click', async () => {
+  if (!currentInvoice) return;
+  modalStatus.textContent = 'שומר...';
+  try {
+    const res = await fetch('/.netlify/functions/update-invoice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messageId: currentInvoice.messageId,
+        driveFileId: currentInvoice.driveFileId,
+        category: modalCategory.value.trim(),
+        paymentStatus: modalPaymentStatus.value,
+        note: modalNote.value.trim(),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'שגיאה');
+    modalStatus.textContent = 'נשמר.';
+    currentInvoice.category = modalCategory.value.trim();
+    currentInvoice.paymentStatus = modalPaymentStatus.value;
+    currentInvoice.note = modalNote.value.trim();
+    renderInvoiceList();
+  } catch (err) {
+    modalStatus.textContent = 'שגיאה בשמירה: ' + err.message;
+  }
+});
+
+function setBusy(buttons, busy, msg, targetStatusEl) {
+  buttons.forEach((b) => (b.disabled = busy));
+  (targetStatusEl || statusEl).textContent = msg || '';
+}
+
+function renderSummary(r, targetEl) {
   const stats = [
     ['נמצאו', r.matched],
     ['הורדו', r.downloaded],
     ['מוצפנים', r.encrypted],
     ['דורש בדיקה', r.needsReview],
     ['כבר תועדו קודם', r.skippedAlready],
+    ['הוחרגו לפי כלל', r.excluded || 0],
     ['עליות מחיר', r.priceIncreases],
   ];
-  summaryEl.innerHTML = stats
+  (targetEl || summaryEl).innerHTML = stats
     .map(
       ([label, num]) =>
         `<div class="stat${label === 'עליות מחיר' && num > 0 ? ' stat-warn' : ''}"><span class="num">${num ?? 0}</span><span class="label">${label}</span></div>`
@@ -307,9 +568,10 @@ function renderSummary(r) {
     .join('');
 }
 
-function renderAlerts(alerts) {
+function renderAlerts(alerts, targetEl) {
+  const el = targetEl || alertsWrap;
   if (!alerts || !alerts.length) {
-    alertsWrap.innerHTML = '';
+    el.innerHTML = '';
     return;
   }
   const cards = alerts
@@ -326,7 +588,7 @@ function renderAlerts(alerts) {
       </div>`;
     })
     .join('');
-  alertsWrap.innerHTML = `<div class="alerts-box">
+  el.innerHTML = `<div class="alerts-box">
     <h4>התראות - שינויים בסכומי חיוב (${alerts.length})</h4>
     ${cards}
   </div>`;
@@ -347,9 +609,10 @@ function badge(item) {
   return `<span class="badge ok">הורד בהצלחה</span>`;
 }
 
-function renderTable(items) {
+function renderTable(items, targetEl) {
+  const el = targetEl || tableWrap;
   if (!items || !items.length) {
-    tableWrap.innerHTML = '<p>לא נמצאו הודעות חדשות תואמות.</p>';
+    el.innerHTML = '<p>לא נמצאו הודעות חדשות תואמות.</p>';
     return;
   }
   const rows = items
@@ -364,34 +627,76 @@ function renderTable(items) {
       </tr>`
     )
     .join('');
-  tableWrap.innerHTML = `<table>
+  el.innerHTML = `<table>
     <thead><tr><th>שולח</th><th>קובץ / הערה</th><th>סטטוס</th><th>סכום</th><th>שינוי</th><th>קישור</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
 
-async function trigger(dryRun) {
-  setBusy(true, dryRun ? 'מריץ בדיקה יבשה...' : 'מריץ סנכרון אמיתי - מוריד ומעלה קבצים...');
-  summaryEl.innerHTML = '';
-  alertsWrap.innerHTML = '';
-  tableWrap.innerHTML = '';
+// מריץ סנכרון (רגיל או חיפוש היסטורי) ומצייר את התוצאה לתוך אלמנטים נתונים -
+// כך אותה לוגיקה משרתת גם את כפתורי הסנכרון הרגילים וגם את מסך "חיפוש היסטורי".
+async function runSyncUI({ dryRun, daysBack, statusEl: targetStatusEl, summaryEl: targetSummaryEl, alertsWrap: targetAlertsWrap, tableWrap: targetTableWrap, buttons }) {
+  setBusy(buttons, true, dryRun ? 'מריץ בדיקה יבשה...' : 'מריץ סנכרון אמיתי - מוריד ומעלה קבצים...', targetStatusEl);
+  targetSummaryEl.innerHTML = '';
+  targetAlertsWrap.innerHTML = '';
+  targetTableWrap.innerHTML = '';
   try {
-    const res = await fetch(`/.netlify/functions/sync-invoices?dryRun=${dryRun}`);
+    const res = await fetch(`/.netlify/functions/sync-invoices?dryRun=${dryRun}&daysBack=${daysBack}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'שגיאה לא ידועה');
-    renderSummary(data);
-    renderAlerts(data.alerts);
-    renderTable(data.items);
-    setBusy(false, dryRun ? 'הבדיקה היבשה הושלמה - שום דבר לא נשמר בפועל.' : 'הסנכרון הושלם.');
+    renderSummary(data, targetSummaryEl);
+    renderAlerts(data.alerts, targetAlertsWrap);
+    renderTable(data.items, targetTableWrap);
+    setBusy(buttons, false, dryRun ? 'הבדיקה היבשה הושלמה - שום דבר לא נשמר בפועל.' : 'הסנכרון הושלם.', targetStatusEl);
+    if (!dryRun) {
+      loadStats();
+      loadInvoiceList();
+    }
   } catch (err) {
-    setBusy(false, '');
-    tableWrap.innerHTML = `<p style="color:#b91c1c">שגיאה: ${err.message}</p>`;
+    setBusy(buttons, false, '', targetStatusEl);
+    targetTableWrap.innerHTML = `<p style="color:#b91c1c">שגיאה: ${err.message}</p>`;
   }
 }
 
-dryRunBtn.addEventListener('click', () => trigger(true));
+dryRunBtn.addEventListener('click', () =>
+  runSyncUI({ dryRun: true, daysBack: 60, statusEl, summaryEl, alertsWrap, tableWrap, buttons: [dryRunBtn, runBtn] })
+);
 runBtn.addEventListener('click', () => {
   if (confirm('להריץ סנכרון אמיתי? הפעולה תוריד קבצים ותעדכן את הדרייב והגיליון.')) {
-    trigger(false);
+    runSyncUI({ dryRun: false, daysBack: 60, statusEl, summaryEl, alertsWrap, tableWrap, buttons: [dryRunBtn, runBtn] });
+  }
+});
+
+// --- חיפוש היסטורי (משיכה לאחור) ---
+const historyRangeSelect = document.getElementById('historyRangeSelect');
+const historyDryRunBtn = document.getElementById('historyDryRunBtn');
+const historyRunBtn = document.getElementById('historyRunBtn');
+const historyStatus = document.getElementById('historyStatus');
+const historySummary = document.getElementById('historySummary');
+const historyAlertsWrap = document.getElementById('historyAlertsWrap');
+const historyTableWrap = document.getElementById('historyTableWrap');
+
+historyDryRunBtn.addEventListener('click', () =>
+  runSyncUI({
+    dryRun: true,
+    daysBack: Number(historyRangeSelect.value),
+    statusEl: historyStatus,
+    summaryEl: historySummary,
+    alertsWrap: historyAlertsWrap,
+    tableWrap: historyTableWrap,
+    buttons: [historyDryRunBtn, historyRunBtn],
+  })
+);
+historyRunBtn.addEventListener('click', () => {
+  if (confirm('להריץ חיפוש היסטורי אמיתי לטווח שנבחר? זה עשוי לקחת יותר זמן מסנכרון רגיל, בהתאם לכמות החשבוניות.')) {
+    runSyncUI({
+      dryRun: false,
+      daysBack: Number(historyRangeSelect.value),
+      statusEl: historyStatus,
+      summaryEl: historySummary,
+      alertsWrap: historyAlertsWrap,
+      tableWrap: historyTableWrap,
+      buttons: [historyDryRunBtn, historyRunBtn],
+    });
   }
 });

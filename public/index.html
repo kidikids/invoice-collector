@@ -77,6 +77,28 @@
         </section>
 
         <section class="card">
+          <h3>חיפוש היסטורי (משיכה לאחור)</h3>
+          <p>הסנכרון הרגיל מסתכל כברירת מחדל 60 יום אחורה. אם יש חשבוניות ישנות יותר שעדיין לא תועדו - למשל מספק שרק עכשיו הוספתם לרשימה הקבועה - אפשר להריץ כאן חיפוש חד-פעמי לטווח רחוק יותר. מומלץ להתחיל תמיד בבדיקה יבשה, ואם יש הרבה תוצאות אפשר להתחיל מטווח קצר יותר ולהרחיב בהדרגה - חשבוניות שכבר תועדו לא יירשמו שוב.</p>
+          <div class="buttons" style="align-items:center;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.9rem;">
+              טווח חיפוש:
+              <select id="historyRangeSelect">
+                <option value="90">3 חודשים אחרונים</option>
+                <option value="180">6 חודשים אחרונים</option>
+                <option value="365">שנה אחרונה</option>
+                <option value="730">שנתיים אחרונות</option>
+              </select>
+            </label>
+            <button id="historyDryRunBtn">בדיקה יבשה</button>
+            <button id="historyRunBtn" class="primary">הרצה אמיתית</button>
+          </div>
+          <div id="historyStatus"></div>
+          <div id="historySummary" class="summary"></div>
+          <div id="historyAlertsWrap"></div>
+          <div id="historyTableWrap"></div>
+        </section>
+
+        <section class="card">
           <div class="section-head">
             <h3>הדפסה והורדה לרו"ח</h3>
             <button id="refreshInvoiceListBtn" class="link-btn">רענון רשימה</button>
@@ -113,6 +135,15 @@
           <h3>איך עובדת ההתראה על שינוי סכום?</h3>
           <p>בכל הרצה, המערכת מנסה לזהות אוטומטית את סכום החיוב הכולל מתוך כל חשבונית (PDF לא מוצפן), ומשווה אותו לסכום האחרון הידוע של אותו ספק. אם הסכום עלה - הוא יופיע בבלוק "התראות" בעמוד "חשבוניות והדפסה", וגם בעמודת "שינוי לעומת פעם קודמת" בגיליון. זיהוי הסכום מבוסס על מילות מפתח נפוצות בחשבוניות ("לתשלום", "סה\"כ", Total וכו') - בחשבוניות בעיצוב חריג ייתכן שהזיהוי לא יצליח; במקרה כזה החשבונית עדיין תיארגן ותתועד כרגיל, פשוט בלי השוואת סכום.</p>
           <p>לשונית "ספקים" בגיליון היא גם רשימת חיפוש יזום: כל שורה שם (עם כתובת מייל או דומיין) נבדקת בנפרד בכל הרצה, כדי לתפוס ספקים קבועים גם אם כותרת המייל שלהם לא מכילה את מילת החיפוש הרגילה.</p>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h3>הספקים הקבועים שלי</h3>
+            <button id="refreshDetectedVendorsBtn" class="link-btn">רענון</button>
+          </div>
+          <p>אלה השולחים שכבר זוהו בהיסטוריית החשבוניות שלכם. לחצו "הוספה לרשימה הקבועה" ליד ספק כדי שהמערכת תחפש את המיילים שלו ביוזמתה בכל חודש, גם אם כותרת המייל לא מכילה את המילה "חשבונית" - בדיוק כמו מילוי ידני בקטע "כללי משיכה מותאמים אישית" למטה, רק בלי להקליד כלום.</p>
+          <div id="detectedVendorsWrap"><p>טוען...</p></div>
         </section>
 
         <section class="card">
