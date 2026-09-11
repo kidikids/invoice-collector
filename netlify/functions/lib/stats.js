@@ -26,9 +26,12 @@ function buildStats(rows) {
   const now = new Date();
   const vendorTotals = {}; // key -> { name, total, count }
   const monthTotals = {}; // 'YYYY-MM' -> total
+  const categoryTotals = {}; // שם קטגוריה -> { total, count }
   let totalAllTime = 0;
   let invoiceCount = 0;
   let encryptedPendingCount = 0;
+  let unpaidTotal = 0;
+  let unpaidCount = 0;
   const priceIncreaseRows = [];
 
   rows.forEach((row) => {
@@ -38,6 +41,8 @@ function buildStats(rows) {
     const amountStr = row[7];
     const changeLabel = row[8] || '';
     const driveLink = row[5] || '';
+    const category = (row[10] || '').trim() || 'ללא קטגוריה';
+    const paymentStatus = (row[11] || '').trim();
 
     if (!dateStr) return;
     const date = new Date(dateStr);
@@ -57,6 +62,15 @@ function buildStats(rows) {
 
       const mk = monthKey(date);
       monthTotals[mk] = (monthTotals[mk] || 0) + amount;
+
+      if (!categoryTotals[category]) categoryTotals[category] = { total: 0, count: 0 };
+      categoryTotals[category].total += amount;
+      categoryTotals[category].count += 1;
+
+      if (paymentStatus === 'לא שולם' || !paymentStatus) {
+        unpaidTotal += amount;
+        unpaidCount += 1;
+      }
     }
 
     if (changeLabel.startsWith('עלייה')) {
@@ -87,6 +101,10 @@ function buildStats(rows) {
     .sort((a, b) => new Date(b.date) - new Date(a.date))
     .slice(0, 6);
 
+  const categories = Object.entries(categoryTotals)
+    .map(([name, v]) => ({ name, total: Math.round(v.total * 100) / 100, count: v.count }))
+    .sort((a, b) => b.total - a.total);
+
   return {
     invoiceCount,
     vendorCount: Object.keys(vendorTotals).length,
@@ -99,6 +117,9 @@ function buildStats(rows) {
     topVendors,
     priceIncreaseCount: priceIncreaseRows.length,
     recentIncreases,
+    categories,
+    unpaidTotal: Math.round(unpaidTotal * 100) / 100,
+    unpaidCount,
   };
 }
 

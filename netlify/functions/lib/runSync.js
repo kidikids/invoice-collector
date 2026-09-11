@@ -16,6 +16,9 @@ const {
   getLoggedMessageIds,
   getVendorAmountHistory,
   extractVendorKey,
+  getSearchRules,
+  RULE_TYPE_INCLUDE,
+  RULE_TYPE_EXCLUDE,
 } = require('./sheets');
 const { isPdfEncrypted } = require('./pdfCheck');
 const { extractAmountFromPdf } = require('./amountExtract');
@@ -55,6 +58,21 @@ function deriveVendorNameFromSubject(subject) {
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned;
+}
+
+// בודק אם הודעה תואמת אחד מכללי "החרג" שהוגדרו במסך ההגדרות - אם הוגדרו גם
+// שולח וגם מילת מפתח באותו כלל, שניהם צריכים להתאים; אם הוגדר רק אחד מהם, מספיק שהוא יתאים.
+function matchesExcludeRule(from, subject, excludeRules) {
+  const fromLower = String(from || '').toLowerCase();
+  const subjectLower = String(subject || '').toLowerCase();
+  return excludeRules.some((r) => {
+    const senderMatch = r.sender ? fromLower.includes(r.sender.toLowerCase()) : null;
+    const subjectMatch = r.subjectKeyword ? subjectLower.includes(r.subjectKeyword.toLowerCase()) : null;
+    if (senderMatch !== null && subjectMatch !== null) return senderMatch && subjectMatch;
+    if (senderMatch !== null) return senderMatch;
+    if (subjectMatch !== null) return subjectMatch;
+    return false;
+  });
 }
 
 function statusLabel(encrypted, knownPassword, viaLink) {
@@ -105,6 +123,7 @@ async function runSync({ dryRun = false } = {}) {
     needsReview: 0,
     skippedAlready: 0,
     priceIncreases: 0,
+    excluded: 0,
     items: [],
     alerts: [],
   };
@@ -157,6 +176,30 @@ async function runSync({ dryRun = false } = {}) {
       }
     }
   }
+
+  // כללי חיפוש נוספים שהוגדרו במסך "הגדרות ועזרה" באפליקציה - כלל "כלול" עם
+  // שולח ו/או מילת מפתח בנושא מוסיף חיפוש יזום נוסף; כלל "החרג" מסונן בהמשך.
+  const searchRules = await getSearchRules(sheets, spreadsheetId);
+  const includeRules = searchRules.filter((r) => r.type === RULE_TYPE_INCLUDE);
+  const excludeRules = searchRules.filter((r) => r.type === RULE_TYPE_EXCLUDE);
+
+  for (const rule of includeRules) {
+    const parts = [];
+    if (rule.sender) parts.push(`from:${rule.sender}`);
+    if (rule.subjectKeyword) parts.push(`subject:${rule.subjectKeyword}`);
+    if (!parts.length) continue;
+    const ruleMessages = await searchInvoiceMessages(gmail, {
+      query: `${parts.join(' ')} newer_than:60d`,
+      maxResults: 20,
+    });
+    for (const rm of ruleMessages) {
+      if (!seenIds.has(rm.id)) {
+        seenIds.add(rm.id);
+        messages.push(rm);
+      }
+    }
+  }
+
   results.matched = messages.length;
 
   for (const m of messages) {
@@ -181,6 +224,13 @@ async function runSync({ dryRun = false } = {}) {
     const effectiveFrom = isSelfSent
       ? deriveVendorNameFromSubject(subject) || 'שיתוף עצמי (וואטסאפ/אחר)'
       : from;
+
+    // כלל "החרג" שהוגדר במסך ההגדרות - מדלגים על ההודעה כליל, עוד לפני שמורידים
+    // אותה או מתעדים אותה בכלל.
+    if (matchesExcludeRule(from, subject, excludeRules)) {
+      results.excluded++;
+      continue;
+    }
 
     const domainMatch = (from.match(/@([\w.-]+)/) || [])[1] || '';
     const knownPassword =
@@ -229,6 +279,9 @@ async function runSync({ dryRun = false } = {}) {
           amount !== null ? amount.toFixed(2) : '',
           changeLabel,
           uploaded.id || '',
+          '',
+          'לא שולם',
+          '',
         ]);
       }
 
@@ -297,6 +350,9 @@ async function runSync({ dryRun = false } = {}) {
               amount !== null ? amount.toFixed(2) : '',
               changeLabel,
               uploaded.id || '',
+              '',
+              'לא שולם',
+              '',
             ]);
           }
 
@@ -329,6 +385,9 @@ async function runSync({ dryRun = false } = {}) {
               knownPassword,
               link.url,
               m.id,
+              '',
+              '',
+              '',
               '',
               '',
               '',
