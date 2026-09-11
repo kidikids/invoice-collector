@@ -27,9 +27,13 @@ exports.handler = async () => {
         filename: row[2] || '',
         status: row[3] || '',
         driveLink: row[5] || '',
+        messageId: row[6] || '',
         amount: row[7] || '',
         changeLabel: row[8] || '',
         driveFileId: row[9] || extractFileIdFromLink(row[5]),
+        category: row[10] || '',
+        paymentStatus: row[11] || '',
+        note: row[12] || '',
       }))
       .filter((it) => it.driveFileId) // רק שורות עם קובץ אמיתי בדרייב (לא קישורי הורדה ידנית)
       .sort((a, b) => (a.date < b.date ? 1 : -1));

@@ -18,7 +18,7 @@ exports.handler = async () => {
     const sheets = google.sheets({ version: 'v4', auth });
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${INVOICES_TAB}!A2:I200000`,
+      range: `${INVOICES_TAB}!A2:M200000`,
     });
     const stats = buildStats(res.data.values || []);
     return {
