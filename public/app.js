@@ -19,22 +19,78 @@ async function parseJsonResponse(res) {
 }
 
 // --- ניווט בין העמודים בסיידבר ---
+function switchToPage(pageName) {
+  document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === pageName));
+  document.querySelectorAll('.page').forEach((p) => (p.hidden = true));
+  const target = document.getElementById('page-' + pageName);
+  if (target) target.hidden = false;
+}
+
 document.querySelectorAll('.nav-item').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll('.page').forEach((p) => (p.hidden = true));
-    const target = document.getElementById('page-' + btn.dataset.page);
-    if (target) target.hidden = false;
+  btn.addEventListener('click', () => switchToPage(btn.dataset.page));
+});
+
+// קישורי "מעבר לעמוד X" מתוך תוכן עמוד אחר (למשל "מסך ראשי" -> "ספקים קבועים")
+document.querySelectorAll('[data-goto-page]').forEach((link) => {
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    switchToPage(link.dataset.gotoPage);
   });
 });
 
-const statusEl = document.getElementById('status');
-const summaryEl = document.getElementById('summary');
-const alertsWrap = document.getElementById('alertsWrap');
-const tableWrap = document.getElementById('resultsTableWrap');
-const dryRunBtn = document.getElementById('dryRunBtn');
-const runBtn = document.getElementById('runBtn');
+const statusEl = document.getElementById('simpleStatus');
+const summaryEl = document.getElementById('simpleSummary');
+const alertsWrap = document.getElementById('simpleAlertsWrap');
+const tableWrap = document.getElementById('simpleTableWrap');
+const dryRunBtn = document.getElementById('simpleDryRunBtn');
+const runBtn = document.getElementById('simpleRunBtn');
+const simpleRangeSelect = document.getElementById('simpleRangeSelect');
+const simpleCustomDateWrap = document.getElementById('simpleCustomDateWrap');
+const simpleFromDate = document.getElementById('simpleFromDate');
+const simpleToDate = document.getElementById('simpleToDate');
+
+// בונה את רשימת האפשרויות בתפריט הטווח: החודש הנוכחי, 12 החודשים האחרונים
+// לפי שם (בעברית), ואז אפשרות לטווח מותאם אישית. מחזיר גם פונקציה שמחשבת
+// מתאריך/עד תאריך (YYYY-MM-DD) לפי הערך הנבחר, כדי שנוכל להשתמש בה גם
+// בלחיצה על הכפתורים.
+const monthFormatter = new Intl.DateTimeFormat('he-IL', { month: 'long', year: 'numeric' });
+function toIsoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function populateSimpleRangeSelect() {
+  const now = new Date();
+  const options = [];
+  for (let i = 0; i <= 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const label = i === 0 ? `החודש הנוכחי (${monthFormatter.format(d)})` : i === 1 ? `החודש הקודם (${monthFormatter.format(d)})` : monthFormatter.format(d);
+    options.push({ value: `month:${i}`, label });
+  }
+  options.push({ value: 'custom', label: 'טווח מותאם אישית' });
+  simpleRangeSelect.innerHTML = options.map((o) => `<option value="${o.value}">${o.label}</option>`).join('');
+}
+populateSimpleRangeSelect();
+
+// מחשב {fromDate, toDate} (מחרוזות YYYY-MM-DD) לפי הבחירה הנוכחית בתפריט הטווח.
+// עבור "החודש הנוכחי" עוצרים בהיום (אין טעם לחפש בתאריכים עתידיים); עבור
+// חודשים קודמים לוקחים את כל החודש הקלנדרי. מחזיר null אם הבחירה "מותאם
+// אישית" והתאריכים עדיין לא מולאו.
+function resolveSimpleDateRange() {
+  const val = simpleRangeSelect.value;
+  if (val === 'custom') {
+    if (!simpleFromDate.value || !simpleToDate.value) return null;
+    return { fromDate: simpleFromDate.value, toDate: simpleToDate.value };
+  }
+  const m = /^month:(\d+)$/.exec(val);
+  const monthsBack = m ? Number(m[1]) : 0;
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+  const to = monthsBack === 0 ? now : new Date(now.getFullYear(), now.getMonth() - monthsBack + 1, 0);
+  return { fromDate: toIsoDate(from), toDate: toIsoDate(to) };
+}
+
+simpleRangeSelect.addEventListener('change', () => {
+  simpleCustomDateWrap.hidden = simpleRangeSelect.value !== 'custom';
+});
 const statsStatusEl = document.getElementById('statsStatus');
 const statsBodyEl = document.getElementById('statsBody');
 const kpiGridEl = document.getElementById('kpiGrid');
@@ -552,29 +608,32 @@ function cancelEditRule() {
   rulesStatus.textContent = '';
 }
 
-// הפאנל הקבוע בעמוד "ספקים קבועים" (מימין) - תצוגה מצומצמת ונוחה של כללי
-// "כלול" בלבד (בלי החרגות ובלי מילות מפתח בנושא), עם אפשרות הוספה/הסרה
-// מהירה. משתמש באותו מקור נתונים (searchRules) כמו הטבלה המלאה בעמוד
-// ההגדרות, ומתעדכן אוטומטית בכל renderSearchRules().
+// תצוגה מצומצמת ונוחה של כללי "כלול" בלבד (בלי החרגות ובלי מילות מפתח
+// בנושא), עם אפשרות הוספה/הסרה מהירה - מוצגת בשני מקומות: הפאנל הקבוע
+// בעמוד "ספקים קבועים" (מימין), וגם ב"מסך ראשי" כרשימת הספקים הפשוטה.
+// משתמשת באותו מקור נתונים (searchRules) כמו הטבלה המלאה בעמוד ההגדרות,
+// ומתעדכנת אוטומטית בכל renderSearchRules().
 function renderActiveVendorsList() {
-  const activeVendorsList = document.getElementById('activeVendorsList');
-  if (!activeVendorsList) return;
   const active = searchRules.map((r, i) => ({ ...r, i })).filter((r) => r.type === 'כלול');
-  if (!active.length) {
-    activeVendorsList.innerHTML = '<p class="vendor-sidebar-empty">עדיין אין ספקים ברשימה הקבועה.</p>';
-    return;
-  }
-  activeVendorsList.innerHTML = active
-    .map((r) => {
-      const label = [r.sender, r.subjectKeyword].filter(Boolean).join(' + ') || '(ללא פרטים)';
-      return `<div class="active-vendor-row">
-        <div class="active-vendor-label">${label}</div>
-        <button class="link-btn active-vendor-remove" data-idx="${r.i}" title="הסרה מהרשימה הקבועה">✕</button>
-      </div>`;
-    })
-    .join('');
-  activeVendorsList.querySelectorAll('.active-vendor-remove').forEach((btn) => {
-    btn.addEventListener('click', () => deleteRule(Number(btn.dataset.idx)));
+  ['activeVendorsList', 'simpleVendorsList'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!active.length) {
+      el.innerHTML = '<p class="vendor-sidebar-empty">עדיין אין ספקים ברשימה הקבועה.</p>';
+      return;
+    }
+    el.innerHTML = active
+      .map((r) => {
+        const label = [r.sender, r.subjectKeyword].filter(Boolean).join(' + ') || '(ללא פרטים)';
+        return `<div class="active-vendor-row">
+          <div class="active-vendor-label">${label}</div>
+          <button class="link-btn active-vendor-remove" data-idx="${r.i}" title="הסרה מהרשימה הקבועה">✕</button>
+        </div>`;
+      })
+      .join('');
+    el.querySelectorAll('.active-vendor-remove').forEach((btn) => {
+      btn.addEventListener('click', () => deleteRule(Number(btn.dataset.idx)));
+    });
   });
 }
 
@@ -644,17 +703,28 @@ cancelEditRuleBtn.addEventListener('click', cancelEditRule);
 
 loadSearchRules();
 
-// הוספה ידנית מהירה מהפאנל הקבוע (עמוד "ספקים קבועים") - שקולה להוספת כלל
-// "כלול" עם שולח בלבד דרך הטופס המלא בעמוד ההגדרות.
+// הוספה ידנית מהירה - שקולה להוספת כלל "כלול" עם שולח בלבד דרך הטופס המלא
+// בעמוד ההגדרות. אותה פונקציה משמשת גם את הפאנל הקבוע בעמוד "ספקים קבועים"
+// וגם את רשימת הספקים הפשוטה ב"מסך ראשי".
+function quickAddVendor(sender) {
+  if (!sender) return;
+  searchRules.push({ type: 'כלול', sender, subjectKeyword: '', note: 'נוסף ידנית מרשימת הספקים הקבועים' });
+  renderSearchRules();
+  saveSearchRules();
+}
+
 const quickAddSenderInput = document.getElementById('quickAddSender');
 const quickAddSenderBtn = document.getElementById('quickAddSenderBtn');
 quickAddSenderBtn.addEventListener('click', () => {
-  const sender = quickAddSenderInput.value.trim();
-  if (!sender) return;
-  searchRules.push({ type: 'כלול', sender, subjectKeyword: '', note: 'נוסף ידנית מרשימת הספקים הקבועים' });
+  quickAddVendor(quickAddSenderInput.value.trim());
   quickAddSenderInput.value = '';
-  renderSearchRules();
-  saveSearchRules();
+});
+
+const simpleQuickAddSenderInput = document.getElementById('simpleQuickAddSender');
+const simpleQuickAddSenderBtn = document.getElementById('simpleQuickAddSenderBtn');
+simpleQuickAddSenderBtn.addEventListener('click', () => {
+  quickAddVendor(simpleQuickAddSenderInput.value.trim());
+  simpleQuickAddSenderInput.value = '';
 });
 
 // --- הספקים הקבועים שלי (הצעות אוטומטיות מתוך היסטוריית החשבוניות) ---
@@ -1054,14 +1124,19 @@ function renderTable(items, targetEl) {
 
 // מריץ סנכרון (רגיל או חיפוש היסטורי) ומצייר את התוצאה לתוך אלמנטים נתונים -
 // כך אותה לוגיקה משרתת גם את כפתורי הסנכרון הרגילים וגם את מסך "חיפוש היסטורי".
-async function runSyncUI({ dryRun, daysBack, statusEl: targetStatusEl, summaryEl: targetSummaryEl, alertsWrap: targetAlertsWrap, tableWrap: targetTableWrap, buttons, focusKeys }) {
+async function runSyncUI({ dryRun, daysBack, statusEl: targetStatusEl, summaryEl: targetSummaryEl, alertsWrap: targetAlertsWrap, tableWrap: targetTableWrap, buttons, focusKeys, fromDate, toDate }) {
   setBusy(buttons, true, dryRun ? 'מריץ בדיקה יבשה...' : 'מריץ סנכרון אמיתי - מוריד ומעלה קבצים...', targetStatusEl);
   targetSummaryEl.innerHTML = '';
   targetAlertsWrap.innerHTML = '';
   targetTableWrap.innerHTML = '';
   try {
     const focusParam = focusKeys && focusKeys.length ? `&focusKeys=${encodeURIComponent(focusKeys.join(','))}` : '';
-    const res = await fetch(`/.netlify/functions/sync-invoices?dryRun=${dryRun}&daysBack=${daysBack}${focusParam}`);
+    // fromDate/toDate (טווח תאריכים מפורש - מ"מסך ראשי") גוברים על daysBack כשהם קיימים.
+    const rangeParam =
+      fromDate && toDate
+        ? `&fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`
+        : `&daysBack=${daysBack}`;
+    const res = await fetch(`/.netlify/functions/sync-invoices?dryRun=${dryRun}${rangeParam}${focusParam}`);
     const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'שגיאה לא ידועה');
     renderSummary(data, targetSummaryEl);
@@ -1079,45 +1154,21 @@ async function runSyncUI({ dryRun, daysBack, statusEl: targetStatusEl, summaryEl
   }
 }
 
-dryRunBtn.addEventListener('click', () =>
-  runSyncUI({ dryRun: true, daysBack: 60, statusEl, summaryEl, alertsWrap, tableWrap, buttons: [dryRunBtn, runBtn] })
-);
-runBtn.addEventListener('click', () => {
-  if (confirm('להריץ סנכרון אמיתי? הפעולה תוריד קבצים ותעדכן את הדרייב והגיליון.')) {
-    runSyncUI({ dryRun: false, daysBack: 60, statusEl, summaryEl, alertsWrap, tableWrap, buttons: [dryRunBtn, runBtn] });
+dryRunBtn.addEventListener('click', () => {
+  const range = resolveSimpleDateRange();
+  if (!range) {
+    statusEl.textContent = 'יש לבחור מתאריך ועד תאריך לטווח המותאם אישית.';
+    return;
   }
+  runSyncUI({ dryRun: true, statusEl, summaryEl, alertsWrap, tableWrap, buttons: [dryRunBtn, runBtn], ...range });
 });
-
-// --- חיפוש היסטורי (משיכה לאחור) ---
-const historyRangeSelect = document.getElementById('historyRangeSelect');
-const historyDryRunBtn = document.getElementById('historyDryRunBtn');
-const historyRunBtn = document.getElementById('historyRunBtn');
-const historyStatus = document.getElementById('historyStatus');
-const historySummary = document.getElementById('historySummary');
-const historyAlertsWrap = document.getElementById('historyAlertsWrap');
-const historyTableWrap = document.getElementById('historyTableWrap');
-
-historyDryRunBtn.addEventListener('click', () =>
-  runSyncUI({
-    dryRun: true,
-    daysBack: Number(historyRangeSelect.value),
-    statusEl: historyStatus,
-    summaryEl: historySummary,
-    alertsWrap: historyAlertsWrap,
-    tableWrap: historyTableWrap,
-    buttons: [historyDryRunBtn, historyRunBtn],
-  })
-);
-historyRunBtn.addEventListener('click', () => {
-  if (confirm('להריץ חיפוש היסטורי אמיתי לטווח שנבחר? זה עשוי לקחת יותר זמן מסנכרון רגיל, בהתאם לכמות החשבוניות.')) {
-    runSyncUI({
-      dryRun: false,
-      daysBack: Number(historyRangeSelect.value),
-      statusEl: historyStatus,
-      summaryEl: historySummary,
-      alertsWrap: historyAlertsWrap,
-      tableWrap: historyTableWrap,
-      buttons: [historyDryRunBtn, historyRunBtn],
-    });
+runBtn.addEventListener('click', () => {
+  const range = resolveSimpleDateRange();
+  if (!range) {
+    statusEl.textContent = 'יש לבחור מתאריך ועד תאריך לטווח המותאם אישית.';
+    return;
+  }
+  if (confirm('להריץ סנכרון אמיתי? הפעולה תוריד קבצים ותעדכן את הדרייב והגיליון.')) {
+    runSyncUI({ dryRun: false, statusEl, summaryEl, alertsWrap, tableWrap, buttons: [dryRunBtn, runBtn], ...range });
   }
 });

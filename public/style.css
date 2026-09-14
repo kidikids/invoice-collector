@@ -247,6 +247,8 @@ tbody tr:hover { background: #fafbff; }
   padding: 20px; z-index: 100;
 }
 .modal-overlay[hidden] { display: none; }
+.inline-date-fields { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.inline-date-fields[hidden] { display: none; }
 .modal-box.narrow { max-width: 480px; }
 .modal-body.stacked { flex-direction: column; gap: 12px; }
 .kpi-checkbox-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
