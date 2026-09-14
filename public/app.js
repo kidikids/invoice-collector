@@ -1,3 +1,23 @@
+// קורא את גוף התשובה כטקסט ומנסה לפרסר אותו כ-JSON, במקום res.json() ישירות -
+// כי כשפונקציית Netlify חורגת ממגבלת זמן הריצה שלה (בעיקר בסנכרון אמיתי עם
+// הרבה חשבוניות להוריד/להעלות), החיבור נקטע באמצע וחוזר גוף תשובה ריק, מה
+// שגורם ל-res.json() לזרוק שגיאה טכנית לא ברורה ("Unexpected end of JSON
+// input"). כאן, גוף ריק או לא תקין הופכים להודעת שגיאה ברורה בעברית במקום.
+async function parseJsonResponse(res) {
+  const text = await res.text();
+  if (!text) {
+    throw new Error(
+      'השרת לא החזיר תשובה - כנראה שהפעולה ארכה יותר מדי זמן (מגבלת זמן ריצה של הפונקציה בענן) ונעצרה באמצע. ' +
+        'נסו טווח ימים קטן יותר, פחות ספקים בבת אחת, או פשוט הריצו שוב - חשבוניות שכבר תועדו לא יירשמו פעמיים.'
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error('תשובה לא תקינה מהשרת: ' + text.slice(0, 200));
+  }
+}
+
 // --- ניווט בין העמודים בסיידבר ---
 document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -286,7 +306,7 @@ async function loadStats() {
   statsBodyEl.hidden = true;
   try {
     const res = await fetch('/.netlify/functions/stats');
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'שגיאה בטעינת סטטיסטיקות');
     if (!data.invoiceCount) {
       statsStatusEl.textContent = 'עדיין אין נתונים - הריצו סנכרון אמיתי כדי להתחיל לראות סטטיסטיקות.';
@@ -380,7 +400,7 @@ async function loadInvoiceList() {
   invoiceListWrap.innerHTML = '<p>טוען רשימה...</p>';
   try {
     const res = await fetch('/.netlify/functions/list-invoices');
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'שגיאה');
     allInvoices = data.items || [];
     populateMonthFilter();
@@ -427,7 +447,7 @@ async function exportSelected(mode) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files, mode }),
     });
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'שגיאה');
     const url = base64ToBlobUrl(data.base64, data.mimeType);
     if (mode === 'zip') {
@@ -561,7 +581,7 @@ function renderActiveVendorsList() {
 async function loadSearchRules() {
   try {
     const res = await fetch('/.netlify/functions/get-search-rules');
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'שגיאה');
     searchRules = data.rules || [];
     renderSearchRules();
@@ -578,7 +598,7 @@ async function saveSearchRules() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rules: searchRules }),
     });
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'שגיאה');
     rulesStatus.textContent = 'נשמר.';
   } catch (err) {
@@ -676,7 +696,7 @@ async function loadDetectedVendors() {
   detectedVendorsWrap.innerHTML = '<p>טוען...</p>';
   try {
     const res = await fetch('/.netlify/functions/detected-vendors');
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'שגיאה');
     detectedVendors = data.vendors || [];
     renderDetectedVendors();
@@ -800,7 +820,7 @@ discoverVendorsBtn.addEventListener('click', async () => {
   try {
     const termParam = term ? `&term=${encodeURIComponent(term)}` : '';
     const res = await fetch(`/.netlify/functions/discover-vendors?daysBack=${discoverRangeSelect.value}${termParam}`);
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'שגיאה');
     discoveredVendors = data.vendors || [];
     renderDiscoveredVendors();
@@ -921,7 +941,7 @@ modalSaveBtn.addEventListener('click', async () => {
         note: modalNote.value.trim(),
       }),
     });
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'שגיאה');
     modalStatus.textContent = 'נשמר.';
     currentInvoice.category = modalCategory.value.trim();
@@ -948,12 +968,23 @@ function renderSummary(r, targetEl) {
     ['הוחרגו לפי כלל', r.excluded || 0],
     ['עליות מחיר', r.priceIncreases],
   ];
-  (targetEl || summaryEl).innerHTML = stats
+  const el = targetEl || summaryEl;
+  el.innerHTML = stats
     .map(
       ([label, num]) =>
         `<div class="stat${label === 'עליות מחיר' && num > 0 ? ' stat-warn' : ''}"><span class="num">${num ?? 0}</span><span class="label">${label}</span></div>`
     )
     .join('');
+  // כשההרצה נעצרה אחרי המספר המקסימלי של חשבוניות חדשות (כדי לא לחרוג מזמן
+  // הריצה) - מציגים הודעה ברורה שיש עוד, ושפשוט צריך להריץ שוב כדי להמשיך.
+  if (r.truncated) {
+    el.insertAdjacentHTML(
+      'beforeend',
+      `<div class="stat stat-warn" style="flex-basis:100%">
+        <span class="label">ההרצה נעצרה אחרי מספר מקסימלי של חשבוניות חדשות בפעם אחת, כדי לא לחרוג מזמן הריצה. הריצו שוב כדי להמשיך ולתפוס את השאר (מה שכבר תועד לא יירשם פעמיים).</span>
+      </div>`
+    );
+  }
 }
 
 function renderAlerts(alerts, targetEl) {
@@ -1031,7 +1062,7 @@ async function runSyncUI({ dryRun, daysBack, statusEl: targetStatusEl, summaryEl
   try {
     const focusParam = focusKeys && focusKeys.length ? `&focusKeys=${encodeURIComponent(focusKeys.join(','))}` : '';
     const res = await fetch(`/.netlify/functions/sync-invoices?dryRun=${dryRun}&daysBack=${daysBack}${focusParam}`);
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'שגיאה לא ידועה');
     renderSummary(data, targetSummaryEl);
     renderAlerts(data.alerts, targetAlertsWrap);
