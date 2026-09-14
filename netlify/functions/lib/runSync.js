@@ -38,8 +38,30 @@ const MAX_DAYS_BACK = 730;
 // בהרצה הבאה (שום דבר לא נרשם פעמיים).
 const MAX_NEW_INVOICES_PER_RUN = 20;
 
-function buildDefaultQuery(daysBack) {
-  return `subject:חשבונית newer_than:${daysBack}d`;
+// מפרמט תאריך לפורמט שדורש Gmail בחיפוש (YYYY/MM/DD).
+function formatGmailDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}/${m}/${day}`;
+}
+
+// בונה את חלק התאריך של שאילתת החיפוש: אם ניתן טווח תאריכים מפורש (fromDate/
+// toDate, למשל מ"מסך ראשי" - חודש נוכחי/קודם/מותאם אישית) - משתמשים ב-
+// after:/before: של Gmail (before: לא כולל את התאריך עצמו, לכן מוסיפים יום
+// אחד ל"עד תאריך" כדי שהוא ייכלל בטווח). אחרת חוזרים להתנהגות הרגילה
+// (newer_than: מספר ימים אחורה מהיום).
+function buildDateClause(safeDaysBack, fromDate, toDate) {
+  if (fromDate && toDate) {
+    const from = new Date(fromDate);
+    const to = new Date(toDate);
+    if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
+      const toExclusive = new Date(to);
+      toExclusive.setDate(toExclusive.getDate() + 1);
+      return `after:${formatGmailDate(from)} before:${formatGmailDate(toExclusive)}`;
+    }
+  }
+  return `newer_than:${safeDaysBack}d`;
 }
 
 function fetchUrl(url) {
@@ -144,11 +166,15 @@ function compareAmount({ amount, from, filename, driveLink, mode, amountHistory 
 // מזהה קבצים מוצפנים (בלי לפצח סיסמאות), מנסה לזהות את סכום החיוב ולהשוות
 // לחודש קודם אצל אותו ספק, ומתעד/מעלה לדרייב + לגיליון.
 // dryRun=true מריץ את כל הלוגיקה אך לא כותב/מעלה כלום - לבדיקה בטוחה, כולל תצוגה מקדימה של התראות.
-async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys = null } = {}) {
+async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys = null, fromDate = null, toDate = null } = {}) {
   const safeDaysBack = Math.min(Math.max(Number(daysBack) || DEFAULT_DAYS_BACK, 1), MAX_DAYS_BACK);
+  const dateClause = buildDateClause(safeDaysBack, fromDate, toDate);
+  const usingDateRange = dateClause.startsWith('after:');
   const results = {
     dryRun,
     daysBack: safeDaysBack,
+    fromDate: usingDateRange ? fromDate : null,
+    toDate: usingDateRange ? toDate : null,
     matched: 0,
     downloaded: 0,
     encrypted: 0,
@@ -206,7 +232,7 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
     // (כותרת/ספקים קיימים/כללים קיימים), כדי לחסוך זמן.
     for (const key of cleanFocusKeys) {
       const focusMessages = await searchInvoiceMessages(gmail, {
-        query: `from:${key} newer_than:${safeDaysBack}d`,
+        query: `from:${key} ${dateClause}`,
         maxResults: 50,
       });
       for (const fm of focusMessages) {
@@ -217,7 +243,7 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
       }
     }
   } else {
-    const query = process.env.GMAIL_SEARCH_QUERY || buildDefaultQuery(safeDaysBack);
+    const query = process.env.GMAIL_SEARCH_QUERY || `subject:חשבונית ${dateClause}`;
     const baseMessages = await searchInvoiceMessages(gmail, { query, maxResults: 100 });
 
     // בנוסף לחיפוש הכללי לפי מילת מפתח בכותרת, מחפשים גם באופן יזום לפי כל
@@ -228,7 +254,7 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
     const vendorKeys = Object.keys(vendorPasswords).filter(Boolean);
     for (const key of vendorKeys) {
       const vendorMessages = await searchInvoiceMessages(gmail, {
-        query: `from:${key} newer_than:${safeDaysBack}d`,
+        query: `from:${key} ${dateClause}`,
         maxResults: 20,
       });
       for (const vm of vendorMessages) {
@@ -251,7 +277,7 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
       }
       if (!parts.length) continue;
       const ruleMessages = await searchInvoiceMessages(gmail, {
-        query: `${parts.join(' ')} newer_than:${safeDaysBack}d`,
+        query: `${parts.join(' ')} ${dateClause}`,
         maxResults: 20,
       });
       for (const rm of ruleMessages) {
