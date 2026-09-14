@@ -29,6 +29,15 @@ const DEFAULT_DAYS_BACK = 60;
 // הגבלה שמרנית כדי לא לחרוג ממגבלת הזמן של פונקציית Netlify בהרצה אחת.
 const MAX_DAYS_BACK = 730;
 
+// מספר החשבוניות "חדשות" (שעדיין לא תועדו) המקסימלי שמעבדים במלואן (הורדה +
+// העלאה לדרייב + תיעוד בגיליון) בהרצה אחת. בלי הגבלה כזו, טווח חיפוש רחב עם
+// הרבה חשבוניות חדשות בבת אחת (למשל אחרי הוספת ספק חדש עם היסטוריה ארוכה)
+// עלול לחרוג ממגבלת זמן הריצה של פונקציית Netlify - החיבור נקטע באמצע והדפדפן
+// מקבל תשובה ריקה/חתוכה. חשבוניות שכבר תועדו לא נספרות במגבלה הזו (הן מדולגות
+// מהר בלי הורדה/העלאה) - וחשבוניות שלא הספיקו להיכנס בהרצה אחת פשוט יתועדו
+// בהרצה הבאה (שום דבר לא נרשם פעמיים).
+const MAX_NEW_INVOICES_PER_RUN = 20;
+
 function buildDefaultQuery(daysBack) {
   return `subject:חשבונית newer_than:${daysBack}d`;
 }
@@ -147,9 +156,11 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
     skippedAlready: 0,
     priceIncreases: 0,
     excluded: 0,
+    truncated: false,
     items: [],
     alerts: [],
   };
+  const folderCache = new Map();
 
   const auth = getOAuthClient();
   const gmail = google.gmail({ version: 'v1', auth });
@@ -253,12 +264,22 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
   }
 
   results.matched = messages.length;
+  let newProcessedCount = 0;
 
   for (const m of messages) {
     if (alreadyLogged.has(m.id)) {
       results.skippedAlready++;
       continue;
     }
+
+    // הגבלת מספר החשבוניות החדשות המעובדות בהרצה אחת (ראו הסבר ליד
+    // MAX_NEW_INVOICES_PER_RUN) - עוצרים כאן, לפני עיבוד ההודעה, כדי לא לחרוג
+    // מזמן הריצה. שאר ההודעות התואמות ייתפסו בהרצה הבאה.
+    if (newProcessedCount >= MAX_NEW_INVOICES_PER_RUN) {
+      results.truncated = true;
+      break;
+    }
+    newProcessedCount++;
 
     const full = await getMessage(gmail, m.id);
     const headers = full.payload.headers || [];
@@ -320,6 +341,7 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
           filename,
           buffer,
           mimeType: isImage ? att.mimeType || 'image/jpeg' : 'application/pdf',
+          folderCache,
         });
         driveLink = uploaded.webViewLink;
         if (alert) alert.driveLink = driveLink;
@@ -392,6 +414,7 @@ async function runSync({ dryRun = false, daysBack = DEFAULT_DAYS_BACK, focusKeys
               filename,
               buffer,
               mimeType: 'application/pdf',
+              folderCache,
             });
             driveLink = uploaded.webViewLink;
             if (alert) alert.driveLink = driveLink;

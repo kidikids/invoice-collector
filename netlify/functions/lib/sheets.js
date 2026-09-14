@@ -5,6 +5,8 @@
 //              (לפי from:<שולח/דומיין>), גם אם כותרת המייל שלו לא מכילה
 //              את מילת החיפוש הרגילה - כדי לתפוס ספקים קבועים כמו חברות סלולר/אינטרנט.
 
+const { withRetry } = require('./apiRetry');
+
 const INVOICES_TAB = 'חשבוניות';
 const VENDORS_TAB = 'ספקים';
 const RULES_TAB = 'כללי חיפוש';
@@ -95,13 +97,15 @@ async function getVendorPasswords(sheets, spreadsheetId) {
 }
 
 async function appendInvoiceRow(sheets, spreadsheetId, row) {
-  await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: `${INVOICES_TAB}!A1`,
-    valueInputOption: 'RAW',
-    insertDataOption: 'INSERT_ROWS',
-    requestBody: { values: [row] },
-  });
+  await withRetry(() =>
+    sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${INVOICES_TAB}!A1`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [row] },
+    })
+  );
 }
 
 // שולף את כל ה-Message ID-ים שכבר תועדו, כדי לא לעבד את אותה הודעה פעמיים
