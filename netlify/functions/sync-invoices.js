@@ -2,6 +2,8 @@
 // daysBack אופציונלי - משמש את מסך "חיפוש היסטורי" למשיכה לאחור לטווח רחב יותר מברירת המחדל.
 // focusKeys אופציונלי (רשימת כתובות/דומיינים מופרדת בפסיקים) - משמש את מסך
 // "הספקים הקבועים שלי" לסריקה ממוקדת רק לספקים שנוספו זה עתה.
+// fromDate/toDate אופציונליים (תאריכים בפורמט YYYY-MM-DD) - משמשים את "מסך
+// ראשי" לבחירת חודש ספציפי/טווח מותאם אישית; כשהם קיימים, הם גוברים על daysBack.
 const { runSync } = require('./lib/runSync');
 const { isQuotaError } = require('./lib/apiRetry');
 
@@ -12,9 +14,11 @@ exports.handler = async (event) => {
   const focusKeys = params.focusKeys
     ? params.focusKeys.split(',').map((s) => s.trim()).filter(Boolean)
     : null;
+  const fromDate = params.fromDate || null;
+  const toDate = params.toDate || null;
 
   try {
-    const results = await runSync({ dryRun, daysBack, focusKeys });
+    const results = await runSync({ dryRun, daysBack, focusKeys, fromDate, toDate });
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
